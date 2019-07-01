@@ -27,10 +27,10 @@ own kalgo instance.
 
 One of the quickest ways to get Kaleido up and running on your machine is by using Docker:
 
-```
-docker run -d --name kaleido-node -v $HOME/kaleido:/root \
-           -p 8545:8545 -p 38883:38883 \
-           kaleidochain/kalgo --rpcaddr 0.0.0.0
+```bash
+docker run -d --name kalnode -v $HOME/kaleido:/root/.kaleido \
+           -p 8545:8545 -p 38883:38883 -p 38883:38883/udp \
+           kaleidochain/kalgo --rpc --rpcaddr 0.0.0.0
 ```
 
 This will start kalgo in fast-sync mode with a DB memory allowance of 1GB just as the above command does.  It will also create a persistent volume in your home directory for saving your blockchain as well as map the default ports.
