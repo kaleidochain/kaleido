@@ -9,7 +9,6 @@ import (
 
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/hexutil"
-	"github.com/kaleidochain/kaleido/crypto/ed25519"
 )
 
 var _ = (*headerMarshaling)(nil)
@@ -33,7 +32,7 @@ func (h Header) MarshalJSON() ([]byte, error) {
 		MixDigest            common.Hash    `json:"mixHash"`
 		Nonce                BlockNonce     `json:"nonce"`
 		TotalBalanceOfMiners *hexutil.Big   `json:"totalBalanceOfMiners" gencodec:"required"`
-		Certificate          *Certificate   `json:"certificate" gencodec:"required"`
+		Certificate          *Certificate   `json:"certificate"`
 		Hash                 common.Hash    `json:"hash"`
 	}
 	var enc Header
@@ -61,24 +60,23 @@ func (h Header) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON unmarshals from JSON.
 func (h *Header) UnmarshalJSON(input []byte) error {
 	type Header struct {
-		ParentHash           *common.Hash          `json:"parentHash"       gencodec:"required"`
-		UncleHash            *common.Hash          `json:"sha3Uncles"       gencodec:"required"`
-		Coinbase             *common.Address       `json:"miner"            gencodec:"required"`
-		Root                 *common.Hash          `json:"stateRoot"        gencodec:"required"`
-		TxHash               *common.Hash          `json:"transactionsRoot" gencodec:"required"`
-		ReceiptHash          *common.Hash          `json:"receiptsRoot"     gencodec:"required"`
-		Bloom                *Bloom                `json:"logsBloom"        gencodec:"required"`
-		Difficulty           *hexutil.Big          `json:"difficulty"       gencodec:"required"`
-		Number               *hexutil.Big          `json:"number"           gencodec:"required"`
-		GasLimit             *hexutil.Uint64       `json:"gasLimit"         gencodec:"required"`
-		GasUsed              *hexutil.Uint64       `json:"gasUsed"          gencodec:"required"`
-		Time                 *hexutil.Uint64       `json:"timestamp"        gencodec:"required"`
-		Extra                *hexutil.Bytes        `json:"extraData"        gencodec:"required"`
-		MixDigest            *common.Hash          `json:"mixHash"`
-		Nonce                *BlockNonce           `json:"nonce"`
-		TotalBalanceOfMiners *hexutil.Big          `json:"totalBalanceOfMiners" gencodec:"required"`
-		Seed                 *ed25519.VrfOutput256 `json:"seed"                 gencodec:"required"`
-		Certificate          *Certificate          `json:"certificate" gencodec:"required"`
+		ParentHash           *common.Hash    `json:"parentHash"       gencodec:"required"`
+		UncleHash            *common.Hash    `json:"sha3Uncles"       gencodec:"required"`
+		Coinbase             *common.Address `json:"miner"            gencodec:"required"`
+		Root                 *common.Hash    `json:"stateRoot"        gencodec:"required"`
+		TxHash               *common.Hash    `json:"transactionsRoot" gencodec:"required"`
+		ReceiptHash          *common.Hash    `json:"receiptsRoot"     gencodec:"required"`
+		Bloom                *Bloom          `json:"logsBloom"        gencodec:"required"`
+		Difficulty           *hexutil.Big    `json:"difficulty"       gencodec:"required"`
+		Number               *hexutil.Big    `json:"number"           gencodec:"required"`
+		GasLimit             *hexutil.Uint64 `json:"gasLimit"         gencodec:"required"`
+		GasUsed              *hexutil.Uint64 `json:"gasUsed"          gencodec:"required"`
+		Time                 *hexutil.Uint64 `json:"timestamp"        gencodec:"required"`
+		Extra                *hexutil.Bytes  `json:"extraData"        gencodec:"required"`
+		MixDigest            *common.Hash    `json:"mixHash"`
+		Nonce                *BlockNonce     `json:"nonce"`
+		TotalBalanceOfMiners *hexutil.Big    `json:"totalBalanceOfMiners" gencodec:"required"`
+		Certificate          *Certificate    `json:"certificate"`
 	}
 	var dec Header
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -146,9 +144,8 @@ func (h *Header) UnmarshalJSON(input []byte) error {
 		return errors.New("missing required field 'totalBalanceOfMiners' for Header")
 	}
 	h.TotalBalanceOfMiners = (*big.Int)(dec.TotalBalanceOfMiners)
-	if dec.Certificate == nil {
-		return errors.New("missing required field 'certificate' for Header")
+	if dec.Certificate != nil {
+		h.Certificate = dec.Certificate
 	}
-	h.Certificate = dec.Certificate
 	return nil
 }
