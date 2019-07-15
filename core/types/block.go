@@ -88,7 +88,7 @@ type Header struct {
 
 	TotalBalanceOfMiners *big.Int `json:"totalBalanceOfMiners" gencodec:"required"`
 
-	Certificate *Certificate `json:"certificate" gencodec:"required"` // not included in any Hash
+	Certificate *Certificate `json:"certificate"` // not included in any Hash
 }
 
 // field type overrides for gencodec

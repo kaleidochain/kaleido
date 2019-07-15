@@ -32,7 +32,7 @@ func (h Header) MarshalJSON() ([]byte, error) {
 		MixDigest            common.Hash    `json:"mixHash"`
 		Nonce                BlockNonce     `json:"nonce"`
 		TotalBalanceOfMiners *hexutil.Big   `json:"totalBalanceOfMiners" gencodec:"required"`
-		Certificate          *Certificate   `json:"certificate" gencodec:"required"`
+		Certificate          *Certificate   `json:"certificate"`
 		Hash                 common.Hash    `json:"hash"`
 	}
 	var enc Header
@@ -76,7 +76,7 @@ func (h *Header) UnmarshalJSON(input []byte) error {
 		MixDigest            *common.Hash    `json:"mixHash"`
 		Nonce                *BlockNonce     `json:"nonce"`
 		TotalBalanceOfMiners *hexutil.Big    `json:"totalBalanceOfMiners" gencodec:"required"`
-		Certificate          *Certificate    `json:"certificate" gencodec:"required"`
+		Certificate          *Certificate    `json:"certificate"`
 	}
 	var dec Header
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -144,9 +144,8 @@ func (h *Header) UnmarshalJSON(input []byte) error {
 		return errors.New("missing required field 'totalBalanceOfMiners' for Header")
 	}
 	h.TotalBalanceOfMiners = (*big.Int)(dec.TotalBalanceOfMiners)
-	if dec.Certificate == nil {
-		return errors.New("missing required field 'certificate' for Header")
+	if dec.Certificate != nil {
+		h.Certificate = dec.Certificate
 	}
-	h.Certificate = dec.Certificate
 	return nil
 }
