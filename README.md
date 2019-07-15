@@ -2,6 +2,11 @@
 
 Official implementation of the Kaleido chain.
 
+[![API Reference](
+https://camo.githubusercontent.com/915b7be44ada53c290eb157634330494ebe3e30a/68747470733a2f2f676f646f632e6f72672f6769746875622e636f6d2f676f6c616e672f6764646f3f7374617475732e737667
+)](https://godoc.org/github.com/kaleidochain/kaleido)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kaleidochain/kaleido)](https://goreportcard.com/report/github.com/kaleidochain/kaleido)
+
 Automated builds are available for stable releases and the unstable master branch.
 
 
@@ -27,10 +32,10 @@ own kalgo instance.
 
 One of the quickest ways to get Kaleido up and running on your machine is by using Docker:
 
-```
-docker run -d --name kaleido-node -v $HOME/kaleido:/root \
-           -p 8545:8545 -p 38883:38883 \
-           kaleidochain/kalgo --rpcaddr 0.0.0.0
+```bash
+docker run -d --name kalnode -v $HOME/kaleido:/root/.kaleido \
+           -p 8545:8545 -p 38883:38883 -p 38883:38883/udp \
+           kaleidochain/kalgo --rpc --rpcaddr 0.0.0.0
 ```
 
 This will start kalgo in fast-sync mode with a DB memory allowance of 1GB just as the above command does.  It will also create a persistent volume in your home directory for saving your blockchain as well as map the default ports.
