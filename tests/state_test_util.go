@@ -23,6 +23,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/hexutil"
 	"github.com/kaleidochain/kaleido/common/math"
@@ -33,7 +34,6 @@ import (
 	"github.com/kaleidochain/kaleido/crypto"
 	"github.com/kaleidochain/kaleido/ethdb"
 	"github.com/kaleidochain/kaleido/params"
-	"github.com/ethereum/go-ethereum/rlp"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -133,7 +133,7 @@ func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config) (*state.StateD
 	if err != nil {
 		return nil, err
 	}
-	context := core.NewEVMContext(msg, block.Header(), nil, &t.json.Env.Coinbase, common.Hash{})
+	context := core.NewEVMContext(msg, block.Header(), nil, &t.json.Env.Coinbase)
 	context.GetHash = vmTestBlockHash
 	evm := vm.NewEVM(context, statedb, config, vmconfig)
 

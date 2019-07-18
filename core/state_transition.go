@@ -76,6 +76,9 @@ type Message interface {
 	CheckNonce() bool
 	Data() []byte
 	DataLen() int
+
+	// Hash returns a identity hash for message, which maybe not equals to each other in implementations.
+	Hash() common.Hash
 }
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
