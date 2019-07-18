@@ -243,6 +243,7 @@ func (tx *Transaction) AsMessage(s Signer) (Message, error) {
 		amount:     tx.data.Amount,
 		data:       tx.data.Payload,
 		checkNonce: true,
+		txHash:     tx.Hash(),
 	}
 
 	var err error
@@ -440,6 +441,7 @@ type Message struct {
 	gasPrice   *big.Int
 	data       []byte
 	checkNonce bool
+	txHash     common.Hash
 }
 
 func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte, checkNonce bool) Message {
@@ -465,8 +467,12 @@ func (m Message) Data() []byte         { return m.data }
 func (m Message) DataLen() int         { return len(m.data) }
 func (m Message) CheckNonce() bool     { return m.checkNonce }
 
-// Hash returns a identity hash for message, which is not equal to other Message implementations.
+// Hash returns a tx hash if exists, a rlpHash of self otherwise.
 func (m Message) Hash() common.Hash {
+	if !common.EmptyHash(m.txHash) {
+		return m.txHash
+	}
+
 	return rlpHash([]interface{}{
 		m.to,
 		m.from,
