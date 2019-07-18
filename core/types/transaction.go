@@ -464,3 +464,16 @@ func (m Message) Nonce() uint64        { return m.nonce }
 func (m Message) Data() []byte         { return m.data }
 func (m Message) DataLen() int         { return len(m.data) }
 func (m Message) CheckNonce() bool     { return m.checkNonce }
+
+// Hash returns a identity hash for message, which is not equal to other Message implementations.
+func (m Message) Hash() common.Hash {
+	return rlpHash([]interface{}{
+		m.to,
+		m.from,
+		m.nonce,
+		m.amount,
+		m.gasLimit,
+		m.gasPrice,
+		m.data,
+	})
+}

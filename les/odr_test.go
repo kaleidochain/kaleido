@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/math"
 	"github.com/kaleidochain/kaleido/core"
@@ -33,7 +34,6 @@ import (
 	"github.com/kaleidochain/kaleido/ethdb"
 	"github.com/kaleidochain/kaleido/light"
 	"github.com/kaleidochain/kaleido/params"
-	"github.com/ethereum/go-ethereum/rlp"
 )
 
 type odrTestFn func(ctx context.Context, db ethdb.Database, config *params.ChainConfig, bc *core.BlockChain, lc *light.LightChain, bhash common.Hash) []byte
@@ -134,7 +134,7 @@ func odrContractCall(ctx context.Context, db ethdb.Database, config *params.Chai
 
 				msg := callmsg{types.NewMessage(from.Address(), &testContractAddr, 0, new(big.Int), 100000, new(big.Int), data, false)}
 
-				context := core.NewEVMContext(msg, header, bc, nil, common.Hash{})
+				context := core.NewEVMContext(msg, header, bc, nil, msg.Hash())
 				vmenv := vm.NewEVM(context, statedb, config, vm.Config{})
 
 				//vmenv := core.NewEnv(statedb, config, bc, msg, header, vm.Config{})
@@ -147,7 +147,7 @@ func odrContractCall(ctx context.Context, db ethdb.Database, config *params.Chai
 			state := light.NewState(ctx, header, lc.Odr())
 			state.SetBalance(testBankAddress, math.MaxBig256)
 			msg := callmsg{types.NewMessage(testBankAddress, &testContractAddr, 0, new(big.Int), 100000, new(big.Int), data, false)}
-			context := core.NewEVMContext(msg, header, lc, nil, common.Hash{})
+			context := core.NewEVMContext(msg, header, lc, nil, msg.Hash())
 			vmenv := vm.NewEVM(context, state, config, vm.Config{})
 			gp := new(core.GasPool).AddGas(math.MaxUint64)
 			ret, _, _, _ := core.ApplyMessage(vmenv, msg, gp)

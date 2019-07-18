@@ -24,6 +24,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/rlp"
+	"golang.org/x/crypto/sha3"
+
 	"github.com/kaleidochain/kaleido"
 	"github.com/kaleidochain/kaleido/accounts/abi/bind"
 	"github.com/kaleidochain/kaleido/common"
@@ -282,7 +285,7 @@ func (b *SimulatedBackend) callContract(ctx context.Context, call kaleido.CallMs
 	// Execute the call.
 	msg := callmsg{call}
 
-	evmContext := core.NewEVMContext(msg, block.Header(), b.blockchain, nil, common.Hash{})
+	evmContext := core.NewEVMContext(msg, block.Header(), b.blockchain, nil, msg.Hash())
 	// Create a new environment which holds all relevant information
 	// about the transaction and calling mechanisms.
 	vmenv := vm.NewEVM(evmContext, statedb, b.config, vm.Config{})
@@ -419,6 +422,12 @@ func (m callmsg) Gas() uint64          { return m.CallMsg.Gas }
 func (m callmsg) Value() *big.Int      { return m.CallMsg.Value }
 func (m callmsg) Data() []byte         { return m.CallMsg.Data }
 func (m callmsg) DataLen() int         { return len(m.CallMsg.Data) }
+func (m callmsg) Hash() (h common.Hash) {
+	hw := sha3.NewLegacyKeccak256()
+	_ = rlp.Encode(hw, m.CallMsg)
+	hw.Sum(h[:0])
+	return h
+}
 
 // filterBackend implements filters.Backend to support filtering for logs without
 // taking bloom-bits acceleration structures into account.

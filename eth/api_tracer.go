@@ -573,7 +573,7 @@ func (api *PrivateDebugAPI) standardTraceBlockToFile(ctx context.Context, block 
 		dumps  []string
 	)
 	for i, tx := range block.Transactions() {
-		// Prepare the trasaction for un-traced execution
+		// Prepare the transaction for un-traced execution
 		var (
 			msg, _ = tx.AsMessage(signer)
 			vmctx  = core.NewEVMContext(msg, block.Header(), api.eth.blockchain, nil, tx.Hash())
