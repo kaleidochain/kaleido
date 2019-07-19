@@ -29,9 +29,8 @@ import (
 	"github.com/kaleidochain/kaleido/trie"
 )
 
-func NewState(ctx context.Context, head *types.Header, odr OdrBackend) *state.StateDB {
-	state, _ := state.New(head.Root, NewStateDatabase(ctx, head, odr))
-	return state
+func NewState(ctx context.Context, head *types.Header, odr OdrBackend) (*state.StateDB, error) {
+	return state.New(head.Root, NewStateDatabase(ctx, head, odr))
 }
 
 func NewStateDatabase(ctx context.Context, head *types.Header, odr OdrBackend) state.Database {

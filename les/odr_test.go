@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/math"
 	"github.com/kaleidochain/kaleido/core"
@@ -33,7 +34,6 @@ import (
 	"github.com/kaleidochain/kaleido/ethdb"
 	"github.com/kaleidochain/kaleido/light"
 	"github.com/kaleidochain/kaleido/params"
-	"github.com/ethereum/go-ethereum/rlp"
 )
 
 type odrTestFn func(ctx context.Context, db ethdb.Database, config *params.ChainConfig, bc *core.BlockChain, lc *light.LightChain, bhash common.Hash) []byte
@@ -97,7 +97,7 @@ func odrAccounts(ctx context.Context, db ethdb.Database, config *params.ChainCon
 			st, err = state.New(header.Root, state.NewDatabase(db))
 		} else {
 			header := lc.GetHeaderByHash(bhash)
-			st = light.NewState(ctx, header, lc.Odr())
+			st, _ = light.NewState(ctx, header, lc.Odr())
 		}
 		if err == nil {
 			bal := st.GetBalance(addr)
@@ -144,7 +144,7 @@ func odrContractCall(ctx context.Context, db ethdb.Database, config *params.Chai
 			}
 		} else {
 			header := lc.GetHeaderByHash(bhash)
-			state := light.NewState(ctx, header, lc.Odr())
+			state, _ := light.NewState(ctx, header, lc.Odr())
 			state.SetBalance(testBankAddress, math.MaxBig256)
 			msg := callmsg{types.NewMessage(testBankAddress, &testContractAddr, 0, new(big.Int), 100000, new(big.Int), data, false)}
 			context := core.NewEVMContext(msg, header, lc, nil, common.Hash{})
