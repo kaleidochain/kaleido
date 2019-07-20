@@ -80,7 +80,8 @@ func (b *LesApiBackend) StateAndHeaderByNumber(ctx context.Context, blockNr rpc.
 	if header == nil || err != nil {
 		return nil, nil, err
 	}
-	return light.NewState(ctx, header, b.eth.odr), header, nil
+	statedb, err := light.NewState(ctx, header, b.eth.odr)
+	return statedb, header, err
 }
 
 func (b *LesApiBackend) GetBlock(ctx context.Context, blockHash common.Hash) (*types.Block, error) {

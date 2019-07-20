@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/math"
 	"github.com/kaleidochain/kaleido/consensus/ethash"
@@ -35,7 +36,6 @@ import (
 	"github.com/kaleidochain/kaleido/crypto"
 	"github.com/kaleidochain/kaleido/ethdb"
 	"github.com/kaleidochain/kaleido/params"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/trie"
 )
 
@@ -146,7 +146,7 @@ func odrAccounts(ctx context.Context, db ethdb.Database, bc *core.BlockChain, lc
 	var st *state.StateDB
 	if bc == nil {
 		header := lc.GetHeaderByHash(bhash)
-		st = NewState(ctx, header, lc.Odr())
+		st, _ = NewState(ctx, header, lc.Odr())
 	} else {
 		header := bc.GetHeaderByHash(bhash)
 		st, _ = state.New(header.Root, state.NewDatabase(db))
@@ -185,7 +185,7 @@ func odrContractCall(ctx context.Context, db ethdb.Database, bc *core.BlockChain
 		if bc == nil {
 			chain = lc
 			header = lc.GetHeaderByHash(bhash)
-			st = NewState(ctx, header, lc.Odr())
+			st, _ = NewState(ctx, header, lc.Odr())
 		} else {
 			chain = bc
 			header = bc.GetHeaderByHash(bhash)

@@ -259,17 +259,14 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	certificate := header.Certificate
 	addrSet := make(map[string]struct{})
 
-	err := core.VerifyProof(ar.config.Algorand, parent.Root, height, header.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
-	if err != nil {
+	stateDb, err := chain.StateAtHeader(header)
+	if stateDb == nil || err != nil {
+		log.Warn("Unexpected!!! statedb error",
+			"height", header.Number.Uint64(), "err", err)
 		return err
 	}
 
 	weightSum := uint64(0)
-
-	db := ethdb.NewMemDatabase()
-	certificate.TrieProof.Store(db)
-	database := state.NewDatabase(db)
-	stateDb, err := state.New(parent.Root, database)
 
 	for _, certVote := range certificate.CertVoteSet {
 		vote := core.NewVoteDataFromCertVoteStorage(certVote, height, certificate.Round, certificate.Value)

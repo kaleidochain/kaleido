@@ -31,7 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/mclock"
 	"github.com/kaleidochain/kaleido/common/prque"
@@ -410,7 +410,12 @@ func (bc *BlockChain) StateAt(root common.Hash) (*state.StateDB, error) {
 	return state.New(root, bc.stateCache)
 }
 
-// StateCache returns the caching database underpinning the blockchain instance.
+// StateAt returns a new mutable state based on a particular point in time.
+func (bc *BlockChain) StateAtHeader(header *types.Header) (*state.StateDB, error) {
+	return bc.StateAt(header.Root)
+}
+
+// State returns a new mutable state based on the given-header.
 func (bc *BlockChain) StateCache() state.Database {
 	return bc.stateCache
 }
@@ -1689,7 +1694,7 @@ Error: %v
 // because nonces can be verified sparsely, not needing to check each.
 func (bc *BlockChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (int, error) {
 	start := time.Now()
-	if i, err := bc.hc.ValidateHeaderChain(chain, checkFreq); err != nil {
+	if i, err := bc.hc.ValidateHeaderChain(bc, chain, checkFreq); err != nil {
 		return i, err
 	}
 

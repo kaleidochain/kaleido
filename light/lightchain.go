@@ -24,10 +24,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru"
+
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/hashicorp/golang-lru"
-	"github.com/kaleidochain/kaleido/common"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/consensus"
 	"github.com/kaleidochain/kaleido/core"
 	"github.com/kaleidochain/kaleido/core/rawdb"
@@ -259,13 +260,13 @@ func (self *LightChain) GetBodyRLP(ctx context.Context, hash common.Hash) (rlp.R
 // HasBlock checks if a block is fully present in the database or not, caching
 // it if present.
 func (bc *LightChain) HasBlock(hash common.Hash, number uint64) bool {
-	blk, _ := bc.GetBlock(NoOdr, hash, number)
+	blk, _ := bc.GetBlockWithContext(NoOdr, hash, number)
 	return blk != nil
 }
 
-// GetBlock retrieves a block from the database or ODR service by hash and number,
+// GetBlockWithContext retrieves a block from the database or ODR service by hash and number,
 // caching it if found.
-func (self *LightChain) GetBlock(ctx context.Context, hash common.Hash, number uint64) (*types.Block, error) {
+func (self *LightChain) GetBlockWithContext(ctx context.Context, hash common.Hash, number uint64) (*types.Block, error) {
 	// Short circuit if the block's already in the cache, retrieve otherwise
 	if block, ok := self.blockCache.Get(hash); ok {
 		return block.(*types.Block), nil
@@ -279,6 +280,23 @@ func (self *LightChain) GetBlock(ctx context.Context, hash common.Hash, number u
 	return block, nil
 }
 
+// GetBlockWithContext retrieves a block from the database or ODR service by hash and number,
+// caching it if found.
+// Context use NoOdr
+func (self *LightChain) GetBlock(hash common.Hash, number uint64) *types.Block {
+	// Short circuit if the block's already in the cache, retrieve otherwise
+	if block, ok := self.blockCache.Get(hash); ok {
+		return block.(*types.Block)
+	}
+	block, err := GetBlock(NoOdr, self.odr, hash, number)
+	if err != nil {
+		return nil
+	}
+	// Cache the found block for next time and return
+	self.blockCache.Add(block.Hash(), block)
+	return block
+}
+
 // GetBlockByHash retrieves a block from the database or ODR service by hash,
 // caching it if found.
 func (self *LightChain) GetBlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
@@ -286,7 +304,7 @@ func (self *LightChain) GetBlockByHash(ctx context.Context, hash common.Hash) (*
 	if number == nil {
 		return nil, errors.New("unknown block")
 	}
-	return self.GetBlock(ctx, hash, *number)
+	return self.GetBlockWithContext(ctx, hash, *number)
 }
 
 // GetBlockByNumber retrieves a block from the database or ODR service by
@@ -296,7 +314,7 @@ func (self *LightChain) GetBlockByNumber(ctx context.Context, number uint64) (*t
 	if hash == (common.Hash{}) || err != nil {
 		return nil, err
 	}
-	return self.GetBlock(ctx, hash, number)
+	return self.GetBlockWithContext(ctx, hash, number)
 }
 
 // Stop stops the blockchain service. If any imports are currently in progress
@@ -356,7 +374,7 @@ func (self *LightChain) postChainEvents(events []interface{}) {
 // chain events when necessary.
 func (self *LightChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (int, error) {
 	start := time.Now()
-	if i, err := self.hc.ValidateHeaderChain(chain, checkFreq); err != nil {
+	if i, err := self.hc.ValidateHeaderChain(self, chain, checkFreq); err != nil {
 		return i, err
 	}
 
@@ -532,4 +550,9 @@ func (self *LightChain) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscri
 // LightChain does not send core.RemovedLogsEvent, so return an empty subscription.
 func (self *LightChain) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription {
 	return self.scope.Track(new(event.Feed).Subscribe(ch))
+}
+
+// StateAt returns a new mutable state based on a particular point in time.
+func (self *LightChain) StateAtHeader(header *types.Header) (*state.StateDB, error) {
+	return NewState(context.Background(), header, self.odr)
 }
