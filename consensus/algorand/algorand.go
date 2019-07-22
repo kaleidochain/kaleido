@@ -259,7 +259,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	certificate := header.Certificate
 	addrSet := make(map[string]struct{})
 
-	stateDb, err := chain.StateAtHeader(header)
+	stateDb, err := chain.StateAtHeader(parent)
 	if stateDb == nil || err != nil {
 		log.Warn("Unexpected!!! statedb error",
 			"height", header.Number.Uint64(), "err", err)

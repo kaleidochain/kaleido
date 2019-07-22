@@ -105,7 +105,7 @@ func (mv *MinerVerifier) VerifySortition(height uint64, round, step uint32, proo
 
 func (mv *MinerVerifier) VerifySignature(height uint64, data []byte, sig ed25519.ForwardSecureSignature) error {
 	if !mv.Validate(height) {
-		return errors.New("miner is not registered")
+		return errors.New(fmt.Sprintf("miner is not registered, miner:%s, height:%d", mv.miner.String(), height))
 	}
 
 	offset := height / uint64(mv.lifespan)

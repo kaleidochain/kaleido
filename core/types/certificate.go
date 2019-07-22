@@ -148,6 +148,7 @@ type Certificate struct {
 	Value       common.Hash        `json:"value" gencodec:"required"`
 	Proposal    ProposalStorage    `json:"proposal" gencodec:"required"`
 	CertVoteSet []*CertVoteStorage `json:"certVoteSet" gencodec:"required"`
+	TrieProof   NodeList           `json:"trieProof" gencodec:"required"`
 }
 
 func (c *Certificate) SignBytes() []byte {
