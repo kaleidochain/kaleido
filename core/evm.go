@@ -38,7 +38,7 @@ type ChainContext interface {
 }
 
 // NewEVMContext creates a new context for use in the EVM.
-func NewEVMContext(msg Message, header *types.Header, chain ChainContext, author *common.Address, txhash common.Hash) vm.Context {
+func NewEVMContext(msg Message, header *types.Header, chain ChainContext, author *common.Address) vm.Context {
 	// If we don't have an explicit author (i.e. not mining), extract from the header
 	var beneficiary common.Address
 	if author == nil {
@@ -57,7 +57,7 @@ func NewEVMContext(msg Message, header *types.Header, chain ChainContext, author
 		Difficulty:  new(big.Int).Set(header.Difficulty),
 		GasLimit:    header.GasLimit,
 		GasPrice:    new(big.Int).Set(msg.GasPrice()),
-		TxHash:      txhash,
+		TxHash:      msg.Hash(),
 	}
 	ctx.GetSeed = GetSeedFn(header, chain)
 	return ctx
@@ -96,9 +96,11 @@ func GetSeedFn(ref *types.Header, chain ChainContext) func(n uint64) (ed25519.Vr
 		counter++
 		num = counter
 
-		if n < ref.Number.Uint64()-256 {
+		const maxHistory = 2049
+		if current := ref.Number.Uint64(); n < current-maxHistory || n > current {
 			return
 		}
+
 		if cache == nil {
 			cache = map[uint64]ed25519.VrfOutput256{
 				ref.Number.Uint64(): ref.Seed(),
@@ -110,7 +112,6 @@ func GetSeedFn(ref *types.Header, chain ChainContext) func(n uint64) (ed25519.Vr
 		}
 		for header := chain.GetHeader(ref.ParentHash, ref.Number.Uint64()-1); header != nil; header = chain.GetHeader(header.ParentHash, header.Number.Uint64()-1) {
 			cache[header.Number.Uint64()] = header.Seed()
-			//fmt.Println("testnet height:2",n,header.Number.Uint64())
 			if n == header.Number.Uint64() {
 				seed = header.Seed()
 				return
