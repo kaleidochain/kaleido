@@ -18,6 +18,7 @@ package types
 
 import (
 	"bytes"
+	"crypto/sha512"
 	"fmt"
 	"unsafe"
 
@@ -83,7 +84,10 @@ func LessThanByProof(a, b *ed25519.VrfProof) bool {
 		panic(fmt.Sprintf("bad vrf proof: %x, %x", a, b))
 	}
 
-	return bytes.Compare(hashA[:], hashB[:]) < 0
+	randA := sha512.Sum512_256(hashA[:])
+	randB := sha512.Sum512_256(hashB[:])
+
+	return bytes.Compare(randA[:], randB[:]) < 0
 }
 
 func EqualToByProof(a, b *ed25519.VrfProof) bool {
