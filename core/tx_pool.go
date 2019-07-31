@@ -239,6 +239,10 @@ type TxPool struct {
 // NewTxPool creates a new transaction pool to gather, sort and filter inbound
 // transactions from the network.
 func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain blockChain) *TxPool {
+	return NewTxPoolWithMortgage(config, chainconfig, chain, nil)
+}
+
+func NewTxPoolWithMortgage(config TxPoolConfig, chainconfig *params.ChainConfig, chain blockChain, mortgage *MortgageWorker) *TxPool {
 	// Sanitize the input to ensure no vulnerable gas prices are set
 	config = (&config).sanitize()
 
@@ -262,6 +266,8 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	}
 	pool.priced = newTxPricedList(pool.all)
 	pool.reset(nil, chain.CurrentBlock().Header())
+
+	pool.mortgage = mortgage
 
 	// If local transactions and journaling is enabled, load from disk
 	if !config.NoLocals && config.Journal != "" {
