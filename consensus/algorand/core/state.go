@@ -123,8 +123,8 @@ func (s *StateBase) OnCertVoteEnough(value common.Hash, round uint32) StateEvent
 		panic("Unexpected error getting cvs or leaderProposalValue")
 	}
 
-	var proof types.NodeSet
-	err := BuildProof(s.config.Algorand, s.parentStatedb, height, blockData.Address, cvs, &proof)
+	proof := types.NewNodeSet()
+	err := BuildProof(s.config.Algorand, s.parentStatedb, height, blockData.Address, cvs, proof)
 	if err != nil {
 		log.Error("build proof failed", "err", err)
 		panic(fmt.Sprintf("build proof failed: %v", err))
