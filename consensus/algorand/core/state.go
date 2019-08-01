@@ -123,7 +123,7 @@ func (s *StateBase) OnCertVoteEnough(value common.Hash, round uint32) StateEvent
 		panic("Unexpected error getting cvs or leaderProposalValue")
 	}
 
-	var proof types.NodeList
+	var proof types.NodeSet
 	err := BuildProof(s.config.Algorand, s.parentStatedb, height, blockData.Address, cvs, &proof)
 	if err != nil {
 		log.Error("build proof failed", "err", err)
@@ -137,7 +137,7 @@ func (s *StateBase) OnCertVoteEnough(value common.Hash, round uint32) StateEvent
 		Value:       value,
 		Proposal:    blockData.ToProposalStorage(),
 		CertVoteSet: cvs,
-		TrieProof:   proof,
+		TrieProof:   proof.NodeList(),
 	}
 
 	sealedBlock := blockData.Block.WithSeal(header)
