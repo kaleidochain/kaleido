@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/consensus"
 	"github.com/kaleidochain/kaleido/core"
@@ -38,7 +39,6 @@ import (
 	"github.com/kaleidochain/kaleido/p2p"
 	"github.com/kaleidochain/kaleido/p2p/enode"
 	"github.com/kaleidochain/kaleido/params"
-	"github.com/ethereum/go-ethereum/rlp"
 )
 
 const (
@@ -779,7 +779,7 @@ func (pm *ProtocolManager) BroadcastTxs(txs types.Transactions) {
 	// Broadcast transactions to a batch of peers not knowing about it
 	for _, tx := range txs {
 		peers := pm.peers.PeersWithoutTx(tx.Hash())
-		peers = peers[:int(math.Sqrt(float64(len(peers))))]
+		//peers = peers[:int(math.Sqrt(float64(len(peers))))]
 		for _, peer := range peers {
 			txset[peer] = append(txset[peer], tx)
 		}
