@@ -17,6 +17,8 @@
 package core
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
@@ -27,7 +29,6 @@ import (
 	"github.com/kaleidochain/kaleido/ethdb"
 	"github.com/kaleidochain/kaleido/params"
 	"github.com/kaleidochain/kaleido/trie"
-	"github.com/pkg/errors"
 )
 
 func proveForAddress(address common.Address, stateDb *state.StateDB, height uint64, minerContract *state.MinerContract, proofDb ethdb.Putter) (err error) {
@@ -58,7 +59,7 @@ func proveForAddress(address common.Address, stateDb *state.StateDB, height uint
 	return
 }
 
-func BuildProof(config *params.AlgorandConfig, stateDb *state.StateDB, height uint64, leader common.Address, cvs []*types.CertVoteStorage, proofDb ethdb.Putter) (err error) {
+func BuildProof(config *params.AlgorandConfig, stateDb *state.StateDB, stateRoot common.Hash, height uint64, leader common.Address, cvs []*types.CertVoteStorage, proofDb *types.NodeSet) (err error) {
 	minerContract := state.NewMinerContract(config)
 
 	err = stateDb.Prove(contracts.MinerAddress, 0, proofDb)
@@ -86,30 +87,45 @@ func BuildProof(config *params.AlgorandConfig, stateDb *state.StateDB, height ui
 		}
 	}
 
+	_, err = verifyProofNodeSet(config, stateRoot, height, leader, cvs, proofDb)
+
+	return
+}
+
+func verifyProofMustHasKey(stateRoot common.Hash, key []byte, proofDb trie.DatabaseReader) (err error) {
+	var value []byte
+	value, _, err = trie.VerifyProof(stateRoot, key, proofDb)
+	if err != nil {
+		return
+	}
+	if len(value) == 0 {
+		err = fmt.Errorf("proof node dont contain key %x", key)
+		return
+	}
 	return
 }
 
 func verifyProofForAddress(address common.Address, minerContract *state.MinerContract, stateRoot, minerContractRoot common.Hash, height uint64, proofDb trie.DatabaseReader) (err error) {
-	_, _, err = trie.VerifyProof(stateRoot, crypto.Keccak256(address.Bytes()), proofDb)
+	err = verifyProofMustHasKey(stateRoot, crypto.Keccak256(address.Bytes()), proofDb)
 	if err != nil {
 		return
 	}
 
 	key := minerContract.MakeMinerInfoKey(height, address)
-	_, _, err = trie.VerifyProof(minerContractRoot, crypto.Keccak256(key.Bytes()), proofDb)
+	err = verifyProofMustHasKey(minerContractRoot, crypto.Keccak256(key.Bytes()), proofDb)
 	if err != nil {
 		return
 	}
 
 	offset := key.Big()
 	offset = offset.Add(offset, common.Big1)
-	_, _, err = trie.VerifyProof(minerContractRoot, crypto.Keccak256(offset.Bytes()), proofDb)
+	err = verifyProofMustHasKey(minerContractRoot, crypto.Keccak256(offset.Bytes()), proofDb)
 	if err != nil {
 		return
 	}
 
 	offset = offset.Add(offset, common.Big1)
-	_, _, err = trie.VerifyProof(minerContractRoot, crypto.Keccak256(offset.Bytes()), proofDb)
+	err = verifyProofMustHasKey(minerContractRoot, crypto.Keccak256(offset.Bytes()), proofDb)
 	if err != nil {
 		return
 	}
@@ -119,17 +135,34 @@ func verifyProofForAddress(address common.Address, minerContract *state.MinerCon
 
 func VerifyProof(config *params.AlgorandConfig, stateRoot common.Hash, height uint64, leader common.Address, cvs []*types.CertVoteStorage, proof types.NodeList) error {
 	nodeSet := proof.NodeSet()
+
+	/*reads*/
+	_, err := verifyProofNodeSet(config, stateRoot, height, leader, cvs, nodeSet)
+	if err != nil {
+		return err
+	}
+
+	// TODO: need check
+	// check if all nodes have been read by VerifyProof
+	//if reads != len(proof) {
+	//	return errors.New("useless nodes in merkle proof nodeset")
+	//}
+
+	return nil
+}
+
+func verifyProofNodeSet(config *params.AlgorandConfig, stateRoot common.Hash, height uint64, leader common.Address, cvs []*types.CertVoteStorage, nodeSet *types.NodeSet) (int, error) {
 	reads := &readTraceDB{db: nodeSet}
 
 	enc, _, err := trie.VerifyProof(stateRoot, crypto.Keccak256(contracts.MinerAddress.Bytes()), reads)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	var data state.Account
 	if err := rlp.DecodeBytes(enc, &data); err != nil {
 		log.Error("Failed to decode state object", "addr", contracts.MinerAddress, "err", err)
-		return err
+		return 0, err
 	}
 
 	minerContractRoot := data.Root
@@ -139,7 +172,7 @@ func VerifyProof(config *params.AlgorandConfig, stateRoot common.Hash, height ui
 	for _, cert := range cvs {
 		err = verifyProofForAddress(cert.Credential.Address, minerContract, stateRoot, minerContractRoot, height, reads)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		if leaderNotIncluded && cert.Credential.Address == leader {
@@ -150,16 +183,11 @@ func VerifyProof(config *params.AlgorandConfig, stateRoot common.Hash, height ui
 	if leaderNotIncluded {
 		err = verifyProofForAddress(leader, minerContract, stateRoot, minerContractRoot, height, reads)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
-	// check if all nodes have been read by VerifyProof
-	if len(reads.reads) != nodeSet.KeyCount() {
-		return errors.New("useless nodes in merkle proof nodeset")
-	}
-
-	return nil
+	return len(reads.reads), nil
 }
 
 // readTraceDB stores the keys of database reads. We use this to check that received node
