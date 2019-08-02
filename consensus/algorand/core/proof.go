@@ -17,6 +17,8 @@
 package core
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
@@ -27,7 +29,6 @@ import (
 	"github.com/kaleidochain/kaleido/ethdb"
 	"github.com/kaleidochain/kaleido/params"
 	"github.com/kaleidochain/kaleido/trie"
-	"github.com/pkg/errors"
 )
 
 func proveForAddress(address common.Address, stateDb *state.StateDB, height uint64, minerContract *state.MinerContract, proofDb ethdb.Putter) (err error) {
@@ -90,27 +91,44 @@ func BuildProof(config *params.AlgorandConfig, stateDb *state.StateDB, height ui
 }
 
 func verifyProofForAddress(address common.Address, minerContract *state.MinerContract, stateRoot, minerContractRoot common.Hash, height uint64, proofDb trie.DatabaseReader) (err error) {
-	_, _, err = trie.VerifyProof(stateRoot, crypto.Keccak256(address.Bytes()), proofDb)
+	var value []byte
+	value, _, err = trie.VerifyProof(stateRoot, crypto.Keccak256(address.Bytes()), proofDb)
 	if err != nil {
+		return
+	}
+	if len(value) == 0 {
+		err = fmt.Errorf("proof node dont contain key %s", address.String())
 		return
 	}
 
 	key := minerContract.MakeMinerInfoKey(height, address)
-	_, _, err = trie.VerifyProof(minerContractRoot, crypto.Keccak256(key.Bytes()), proofDb)
+	value, _, err = trie.VerifyProof(minerContractRoot, crypto.Keccak256(key.Bytes()), proofDb)
 	if err != nil {
+		return
+	}
+	if len(value) == 0 {
+		err = fmt.Errorf("proof node dont contain coinbase key %s", address.String())
 		return
 	}
 
 	offset := key.Big()
 	offset = offset.Add(offset, common.Big1)
-	_, _, err = trie.VerifyProof(minerContractRoot, crypto.Keccak256(offset.Bytes()), proofDb)
+	value, _, err = trie.VerifyProof(minerContractRoot, crypto.Keccak256(offset.Bytes()), proofDb)
 	if err != nil {
+		return
+	}
+	if len(value) == 0 {
+		err = fmt.Errorf("proof node dont contain vrf key %s", address.String())
 		return
 	}
 
 	offset = offset.Add(offset, common.Big1)
-	_, _, err = trie.VerifyProof(minerContractRoot, crypto.Keccak256(offset.Bytes()), proofDb)
+	value, _, err = trie.VerifyProof(minerContractRoot, crypto.Keccak256(offset.Bytes()), proofDb)
 	if err != nil {
+		return
+	}
+	if len(value) == 0 {
+		err = fmt.Errorf("proof node dont contain vote key %s", address.String())
 		return
 	}
 
@@ -155,9 +173,9 @@ func VerifyProof(config *params.AlgorandConfig, stateRoot common.Hash, height ui
 	}
 
 	// check if all nodes have been read by VerifyProof
-	if len(reads.reads) != nodeSet.KeyCount() {
-		return errors.New("useless nodes in merkle proof nodeset")
-	}
+	//if len(reads.reads) != len(proof) {
+	//	return errors.New("useless nodes in merkle proof nodeset")
+	//}
 
 	return nil
 }

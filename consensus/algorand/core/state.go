@@ -128,7 +128,11 @@ func (s *StateBase) OnCertVoteEnough(value common.Hash, round uint32) StateEvent
 	if err != nil {
 		log.Error("build proof failed", "err", err)
 		panic(fmt.Sprintf("build proof failed: %v", err))
-		return Unchanged
+	}
+
+	if err := VerifyProof(s.config.Algorand, s.parent.Root(), height, blockData.Address, cvs, proof.NodeList()); err != nil {
+		log.Error("verify proof failed", "err", err)
+		panic(fmt.Sprintf("verify proof failed: %v", err))
 	}
 
 	header.Certificate = &types.Certificate{
