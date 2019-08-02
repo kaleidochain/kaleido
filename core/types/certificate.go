@@ -155,6 +155,26 @@ type Certificate struct {
 	TrieProof   NodeList           `json:"trieProof" gencodec:"required"`
 }
 
+func (c *Certificate) Proposer() common.Address {
+	return c.Proposal.Credential.Address
+}
+
+func (c *Certificate) SetProposer(addr common.Address) {
+	c.Proposal.Credential.Address = addr
+}
+
+func (c *Certificate) SeedProof() ed25519.VrfProof {
+	return c.Proposal.SeedProof
+}
+
+func (c *Certificate) SeedProofBytes() []byte {
+	return c.Proposal.SeedProof[:]
+}
+
+func (c *Certificate) SetSeedProof(proof []byte) {
+	copy(c.Proposal.SeedProof[:], proof[:])
+}
+
 func (c *Certificate) SignBytes() []byte {
 	return c.Value[:]
 }

@@ -21,6 +21,8 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/kaleidochain/kaleido/core/types"
+
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/crypto"
 	"github.com/kaleidochain/kaleido/ethdb"
@@ -242,4 +244,58 @@ func compareStateObjects(so0, so1 *stateObject, t *testing.T) {
 			t.Errorf("Origin storage key %x mismatch: have %v, want none.", k, v)
 		}
 	}
+}
+
+func TestSetState(t *testing.T) {
+	db := ethdb.NewMemDatabase()
+	state, err := New(common.Hash{}, NewDatabase(db))
+	if err != nil {
+		t.Errorf("new state, err:%s", err)
+	}
+
+	address := common.HexToAddress("0x823140710bf13990e4500136726d8b55")
+	state.CreateAccount(address)
+	key := common.HexToHash("0x1000000000000000000000000000000000000001")
+	value := common.HexToHash("0xa00000000000000000000000000000000000000a")
+	state.SetState(address, key, value)
+
+	key1 := common.HexToHash("0x1000000000000000000000000000000000000002")
+	value1 := common.HexToHash("0xa00000000000000000000000000000000000000b")
+	state.SetState(address, key1, value1)
+
+	key2 := common.HexToHash("0x1000000000000000000000000000000000000003")
+	value2 := common.HexToHash("0xa00000000000000000000000000000000000000c")
+	state.SetState(address, key2, value2)
+
+	root, err := state.Commit(false)
+	if err != nil {
+		t.Errorf("state.Commit, err:%s", err)
+	}
+	t.Logf("root:%s", root.String())
+
+	proof := types.NewNodeSet()
+	err = state.Prove(address, 0, proof)
+	if err != nil {
+		t.Errorf("state.Prove address, err:%s", err)
+	}
+	t.Logf("prove ok1, size:%d", proof.DataSize())
+
+	err = state.StorageProve(address, key, 0, proof)
+	if err != nil {
+		t.Errorf("state.Prove address key, err:%s", err)
+	}
+	t.Logf("prove ok2, size:%d", proof.DataSize())
+
+	err = state.StorageProve(address, key1, 0, proof)
+	if err != nil {
+		t.Errorf("state.Prove address key1, err:%s", err)
+	}
+	t.Logf("prove ok3, size:%d", proof.DataSize())
+
+	err = state.StorageProve(address, key2, 0, proof)
+	if err != nil {
+		t.Errorf("state.Prove address key2, err:%s", err)
+	}
+
+	t.Logf("prove ok, size:%d", proof.DataSize())
 }

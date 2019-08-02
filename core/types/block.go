@@ -129,26 +129,6 @@ func (h *Header) SeedBytes() []byte {
 	return h.MixDigest[:]
 }
 
-func (h *Header) SetSeedProof(proof []byte) {
-	copy(h.Certificate.Proposal.SeedProof[:], proof[:])
-}
-
-func (h *Header) SeedProof() ed25519.VrfProof {
-	return h.Certificate.Proposal.SeedProof
-}
-
-func (h *Header) SeedProofBytes() []byte {
-	return h.Certificate.Proposal.SeedProof[:]
-}
-
-func (h *Header) Proposer() common.Address {
-	return h.Certificate.Proposal.Credential.Address
-}
-
-func (h *Header) SetProposer(addr common.Address) {
-	h.Certificate.Proposal.Credential.Address = addr
-}
-
 // Hash returns the block hash of the header, which is simply the keccak256 hash of its
 // RLP encoding.
 func (h *Header) Hash() common.Hash {
@@ -395,9 +375,8 @@ func (b *Block) AlgorandEmptyValue() common.Hash { return b.header.AlgorandEmpty
 
 func (b *Block) Certificate() *Certificate      { return b.header.Certificate }
 func (b *Block) Seed() ed25519.VrfOutput256     { return b.header.Seed() }
-func (b *Block) SeedProof() ed25519.VrfProof    { return b.header.Certificate.Proposal.SeedProof }
+func (b *Block) SeedProof() ed25519.VrfProof    { return b.header.Certificate.SeedProof() }
 func (b *Block) TotalBalanceOfMiners() *big.Int { return b.header.TotalBalanceOfMiners }
-func (b *Block) Proposer() common.Address       { return b.header.Proposer() }
 
 // Size returns the true RLP encoded storage size of the block, either by encoding
 // and returning it, or returning a previously cached value.
