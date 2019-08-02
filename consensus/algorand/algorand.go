@@ -63,7 +63,7 @@ func New(ctx *node.ServiceContext, chainConfig *params.ChainConfig, db ethdb.Dat
 // -------------
 
 func (ar *Algorand) Author(header *types.Header) (common.Address, error) {
-	return header.Proposer(), nil
+	return header.Certificate.Proposer(), nil
 }
 
 func (ar *Algorand) Coinbase(header *types.Header) common.Address {
@@ -259,7 +259,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	certificate := header.Certificate
 	addrSet := make(map[string]struct{})
 
-	err := core.VerifyProof(ar.config.Algorand, parent.Root, height, header.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
+	err := core.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
 	if err != nil {
 		return err
 	}
@@ -296,7 +296,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 			weightSum, threshold)
 	}
 
-	proposerVerifier := core.GetMinerVerifier(ar.config.Algorand, stateDb, header.Proposer(), height)
+	proposerVerifier := core.GetMinerVerifier(ar.config.Algorand, stateDb, header.Certificate.Proposer(), height)
 
 	// verify the credential of proposer
 	hash := header.Hash()
@@ -307,7 +307,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	}
 
 	// Verify signature of header.ParentSeed
-	err = proposerVerifier.VerifySeed(height, parent.Seed(), parent.Hash(), header.Seed(), header.SeedProof())
+	err = proposerVerifier.VerifySeed(height, parent.Seed(), parent.Hash(), header.Seed(), header.Certificate.SeedProof())
 	if err != nil {
 		return fmt.Errorf("verify sigParentSeed error: %s", err)
 	}
@@ -315,7 +315,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	// check coinbase
 	if header.Coinbase != proposerVerifier.Coinbase() {
 		return fmt.Errorf("invalid coinbase in VerifySeal, header(%d) coinbase:%s, proposalLeader:%s, expected coinbase:%s",
-			height, header.Coinbase, header.Proposer, proposerVerifier.Coinbase())
+			height, header.Coinbase, header.Certificate.Proposer(), proposerVerifier.Coinbase())
 	}
 
 	return nil

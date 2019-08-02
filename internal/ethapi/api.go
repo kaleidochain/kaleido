@@ -898,7 +898,7 @@ func RPCMarshalBlock(b *types.Block, inclTx bool, fullTx bool) (map[string]inter
 		"version":              hexutil.Uint64(head.Version()),
 		"totalBalanceOfMiners": (*hexutil.Big)(head.TotalBalanceOfMiners),
 		"seed":                 hexutil.Bytes(head.SeedBytes()),
-		"proposer":             head.Proposer(),
+		"proposer":             head.Certificate.Proposer(),
 	}
 
 	if inclTx {
