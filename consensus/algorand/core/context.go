@@ -1497,8 +1497,8 @@ func (ctx *Context) NewBlock() error {
 		return err
 	}
 	ctx.header.SetSeed(seed)
-	ctx.header.SetSeedProof(proof[:])
-	ctx.header.SetProposer(ctx.currentMiner)
+	ctx.header.Certificate.SetSeedProof(proof[:])
+	ctx.header.Certificate.SetProposer(ctx.currentMiner)
 
 	if err := ctx.engine.Prepare(blockchain, ctx.header); err != nil {
 		log.Error("Failed to prepare header for mining", "err", err)

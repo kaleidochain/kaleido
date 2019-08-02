@@ -135,14 +135,10 @@ type ProposalBlockData struct {
 }
 
 func NewProposalBlockDataFromProposalStorage(leader *types.ProposalStorage, block *types.Block) *ProposalBlockData {
-	credentialStorage := types.CredentialStorage{
-		Address: block.Proposer(),
-		Proof:   leader.Credential.Proof,
-	}
 	return &ProposalBlockData{
 		Block:      block,
 		ESignValue: leader.ESignValue,
-		Credential: NewCredentialFromCredentialStorage(&credentialStorage, block.NumberU64(), leader.Round, types.RoundStep1Proposal),
+		Credential: NewCredentialFromCredentialStorage(&leader.Credential, block.NumberU64(), leader.Round, types.RoundStep1Proposal),
 	}
 }
 
