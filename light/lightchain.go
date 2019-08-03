@@ -280,7 +280,7 @@ func (self *LightChain) GetBlockWithContext(ctx context.Context, hash common.Has
 	return block, nil
 }
 
-// GetBlockWithContext retrieves a block from the database or ODR service by hash and number,
+// GetBlock retrieves a block from the database or ODR service by hash and number,
 // caching it if found.
 // Context use NoOdr
 func (self *LightChain) GetBlock(hash common.Hash, number uint64) *types.Block {
