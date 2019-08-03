@@ -32,6 +32,7 @@ import (
 
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/consensus"
+	core2 "github.com/kaleidochain/kaleido/core"
 	"github.com/kaleidochain/kaleido/core/state"
 	"github.com/kaleidochain/kaleido/core/types"
 	"github.com/kaleidochain/kaleido/ethdb"
@@ -259,7 +260,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	certificate := header.Certificate
 	addrSet := make(map[string]struct{})
 
-	err := core.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
+	err := core2.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
 	if err != nil {
 		return err
 	}
@@ -310,12 +311,6 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	err = proposerVerifier.VerifySeed(height, parent.Seed(), parent.Hash(), header.Seed(), header.Certificate.SeedProof())
 	if err != nil {
 		return fmt.Errorf("verify sigParentSeed error: %s", err)
-	}
-
-	// check coinbase
-	if header.Coinbase != proposerVerifier.Coinbase() {
-		return fmt.Errorf("invalid coinbase in VerifySeal, header(%d) coinbase:%s, proposalLeader:%s, expected coinbase:%s",
-			height, header.Coinbase, header.Certificate.Proposer(), proposerVerifier.Coinbase())
 	}
 
 	return nil

@@ -190,6 +190,13 @@ func (c *Certificate) Copy() *Certificate {
 			*cpy.CertVoteSet[i] = *c.CertVoteSet[i]
 		}
 	}
+	if c.TrieProof != nil {
+		cpy.TrieProof = make(NodeList, len(c.TrieProof))
+		for i := 0; i < len(c.TrieProof); i++ {
+			cpy.TrieProof[i] = make([]byte, len(c.TrieProof[i]))
+			copy(cpy.TrieProof[i], c.TrieProof[i])
+		}
+	}
 
 	return cpy
 }
@@ -199,6 +206,9 @@ func (c *Certificate) Size() common.StorageSize {
 
 	if len(c.CertVoteSet) > 0 {
 		size += common.StorageSize(len(c.CertVoteSet) * int(unsafe.Sizeof(c.CertVoteSet[0])))
+	}
+	if len(c.TrieProof) > 0 {
+		size += common.StorageSize(len(c.TrieProof) * len(c.TrieProof[0]))
 	}
 
 	return size

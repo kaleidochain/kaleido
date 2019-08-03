@@ -613,6 +613,28 @@ func (bc *BlockChain) HasBlockAndState(hash common.Hash, number uint64) bool {
 	return bc.HasState(block.Root())
 }
 
+func (bc *BlockChain) BuildProof(certificate *types.Certificate) (err error) {
+	if certificate.Height < 1 {
+		return
+	}
+	parent := bc.GetHeaderByNumber(certificate.Height - 1)
+	if parent == nil {
+		err = fmt.Errorf("GetHeaderByNumber error, height:%d", certificate.Height-1)
+		return
+	}
+	parentStatedb, err := bc.StateAtHeader(parent)
+	if err != nil {
+		return
+	}
+
+	proof := types.NewNodeSet()
+	err = BuildProof(bc.chainConfig.Algorand, parentStatedb, parent.Root, certificate.Height, certificate.Proposal.Credential.Address, certificate.CertVoteSet, proof)
+	if err == nil {
+		certificate.TrieProof = proof.NodeList()
+	}
+	return
+}
+
 // GetBlock retrieves a block from the database by hash and number,
 // caching it if found.
 func (bc *BlockChain) GetBlock(hash common.Hash, number uint64) *types.Block {

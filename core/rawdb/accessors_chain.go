@@ -22,9 +22,9 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/core/types"
-	"github.com/ethereum/go-ethereum/rlp"
 )
 
 // ReadCanonicalHash retrieves the hash assigned to a canonical block number.
@@ -157,6 +157,8 @@ func ReadHeader(db DatabaseReader, hash common.Hash, number uint64) *types.Heade
 // WriteHeader stores a block header into the database and also stores the hash-
 // to-number mapping.
 func WriteHeader(db DatabaseWriter, header *types.Header) {
+	header.Certificate.TrieProof = nil
+
 	// Write the hash -> number mapping
 	var (
 		hash    = header.Hash()
