@@ -259,25 +259,36 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	height := header.Number.Uint64()
 	certificate := header.Certificate
 	addrSet := make(map[string]struct{})
+	var stateDb *state.StateDB
 
-	err := core2.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
-	if err != nil {
-		return err
+	if len(certificate.TrieProof) > 0 && certificate.TrieProof.DataSize() > 0 {
+		err := core2.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
+		if err != nil {
+			return err
+		}
+
+		db := ethdb.NewMemDatabase()
+		certificate.TrieProof.Store(db)
+		database := state.NewDatabase(db)
+		stateDb, err = state.New(parent.Root, database)
+	} else {
+		var err error
+		stateDb, err = chain.StateAtHeader(parent)
+		if err != nil {
+			log.Warn("Unexpected!!! statedb error",
+				"height", header.Number.Uint64(), "err", err)
+			return err
+		}
 	}
 
 	weightSum := uint64(0)
-
-	db := ethdb.NewMemDatabase()
-	certificate.TrieProof.Store(db)
-	database := state.NewDatabase(db)
-	stateDb, err := state.New(parent.Root, database)
 
 	for _, certVote := range certificate.CertVoteSet {
 		vote := core.NewVoteDataFromCertVoteStorage(certVote, height, certificate.Round, certificate.Value)
 
 		mv := core.GetMinerVerifier(ar.config.Algorand, stateDb, vote.Address, vote.Height)
 
-		err = core.VerifySignatureAndCredential(mv, vote.SignBytes(), vote.ESignValue, &vote.Credential, stateDb, parent.Seed(), parent.TotalBalanceOfMiners)
+		err := core.VerifySignatureAndCredential(mv, vote.SignBytes(), vote.ESignValue, &vote.Credential, stateDb, parent.Seed(), parent.TotalBalanceOfMiners)
 		if err != nil {
 			return err
 		}
@@ -302,7 +313,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	// verify the credential of proposer
 	hash := header.Hash()
 	proposalLeader := core.NewProposalLeaderDataFromStorage(hash, height, &certificate.Proposal)
-	err = core.VerifySignatureAndCredential(proposerVerifier, proposalLeader.SignBytes(), proposalLeader.ESignValue, &proposalLeader.Credential, stateDb, parent.Seed(), parent.TotalBalanceOfMiners)
+	err := core.VerifySignatureAndCredential(proposerVerifier, proposalLeader.SignBytes(), proposalLeader.ESignValue, &proposalLeader.Credential, stateDb, parent.Seed(), parent.TotalBalanceOfMiners)
 	if err != nil {
 		return fmt.Errorf("VerifyProposalLeader error, vote:%v, err:%s", certificate.Proposal, err.Error())
 	}
