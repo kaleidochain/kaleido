@@ -280,20 +280,13 @@ func (self *LightChain) GetBlockWithContext(ctx context.Context, hash common.Has
 	return block, nil
 }
 
-// GetBlock retrieves a block from the database or ODR service by hash and number,
-// caching it if found.
-// Context use NoOdr
+// GetBlock implements ChainReader.GetBlock
 func (self *LightChain) GetBlock(hash common.Hash, number uint64) *types.Block {
-	// Short circuit if the block's already in the cache, retrieve otherwise
-	if block, ok := self.blockCache.Get(hash); ok {
-		return block.(*types.Block)
-	}
-	block, err := GetBlock(NoOdr, self.odr, hash, number)
+	block, err := self.GetBlockWithContext(NoOdr, hash, number)
 	if err != nil {
 		return nil
 	}
-	// Cache the found block for next time and return
-	self.blockCache.Add(block.Hash(), block)
+
 	return block
 }
 
@@ -552,7 +545,7 @@ func (self *LightChain) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEven
 	return self.scope.Track(new(event.Feed).Subscribe(ch))
 }
 
-// StateAt returns a new mutable state based on a particular point in time.
+// StateAtHeader returns a new mutable state based on the given-header.
 func (self *LightChain) StateAtHeader(header *types.Header) (*state.StateDB, error) {
-	return NewState(context.Background(), header, self.odr)
+	return NewState(NoOdr, header, self.odr)
 }

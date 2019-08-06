@@ -410,12 +410,12 @@ func (bc *BlockChain) StateAt(root common.Hash) (*state.StateDB, error) {
 	return state.New(root, bc.stateCache)
 }
 
-// StateAt returns a new mutable state based on a particular point in time.
+// StateAtHeader returns a new mutable state based on the given-header.
 func (bc *BlockChain) StateAtHeader(header *types.Header) (*state.StateDB, error) {
 	return bc.StateAt(header.Root)
 }
 
-// State returns a new mutable state based on the given-header.
+// StateCache returns the caching database underpinning the blockchain instance.
 func (bc *BlockChain) StateCache() state.Database {
 	return bc.stateCache
 }
@@ -613,7 +613,7 @@ func (bc *BlockChain) HasBlockAndState(hash common.Hash, number uint64) bool {
 	return bc.HasState(block.Root())
 }
 
-func (bc *BlockChain) BuildProof(certificate *types.Certificate) (err error) {
+func (bc *BlockChain) BuildProof(certificate *types.Certificate) (trieProof types.NodeList, err error) {
 	if certificate.Height < 1 {
 		return
 	}
@@ -630,7 +630,7 @@ func (bc *BlockChain) BuildProof(certificate *types.Certificate) (err error) {
 	proof := types.NewNodeSet()
 	err = BuildProof(bc.chainConfig.Algorand, parentStatedb, parent.Root, certificate.Height, certificate.Proposal.Credential.Address, certificate.CertVoteSet, proof)
 	if err == nil {
-		certificate.TrieProof = proof.NodeList()
+		trieProof = proof.NodeList()
 	}
 	return
 }

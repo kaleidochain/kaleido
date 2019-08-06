@@ -391,10 +391,12 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			if origin == nil {
 				break
 			}
-			if err := pm.blockchain.BuildProof(origin.Certificate); err != nil {
+			proof, err := pm.blockchain.BuildProof(origin.Certificate)
+			if err != nil {
 				p.Log().Error("BuildProof error, height:%d", origin.Number.Uint64())
 				break
 			}
+			origin.Certificate.TrieProof = proof
 
 			headers = append(headers, origin)
 			bytes += estHeaderRlpSize
@@ -742,11 +744,12 @@ func (pm *ProtocolManager) BroadcastBlock(block *types.Block, propagate bool) {
 	hash := block.Hash()
 	peers := pm.peers.PeersWithoutBlock(hash)
 
-	err := pm.blockchain.BuildProof(block.Certificate())
+	proof, err := pm.blockchain.BuildProof(block.Certificate())
 	if err != nil {
 		log.Error("BuildProof error when BroadcastBlock", "number", block.Number(), "hash", hash)
 		return
 	}
+	block.Certificate().TrieProof = proof
 
 	// If propagation is requested, send to a subset of the peer
 	if propagate {

@@ -510,7 +510,7 @@ func (hc *HeaderChain) GetBlock(hash common.Hash, number uint64) *types.Block {
 	return nil
 }
 
-// State returns a new mutable state based on the given-header.
+// StateAtHeader returns a nil state.
 func (bc *HeaderChain) StateAtHeader(header *types.Header) (*state.StateDB, error) {
-	return nil, nil
+	return nil, fmt.Errorf("not implemented")
 }
