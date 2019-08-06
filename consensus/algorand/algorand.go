@@ -32,6 +32,7 @@ import (
 
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/consensus"
+	core2 "github.com/kaleidochain/kaleido/core"
 	"github.com/kaleidochain/kaleido/core/state"
 	"github.com/kaleidochain/kaleido/core/types"
 	"github.com/kaleidochain/kaleido/ethdb"
@@ -258,25 +259,36 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	height := header.Number.Uint64()
 	certificate := header.Certificate
 	addrSet := make(map[string]struct{})
+	var stateDb *state.StateDB
 
-	err := core.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
-	if err != nil {
-		return err
+	if len(certificate.TrieProof) > 0 { // for full/fast sync
+		err := core2.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
+		if err != nil {
+			return err
+		}
+
+		db := ethdb.NewMemDatabase()
+		certificate.TrieProof.Store(db)
+		database := state.NewDatabase(db)
+		stateDb, err = state.New(parent.Root, database)
+	} else { // for light sync
+		var err error
+		stateDb, err = chain.StateAtHeader(parent)
+		if err != nil {
+			log.Warn("Unexpected!!! statedb error",
+				"height", header.Number.Uint64(), "err", err)
+			return err
+		}
 	}
 
 	weightSum := uint64(0)
-
-	db := ethdb.NewMemDatabase()
-	certificate.TrieProof.Store(db)
-	database := state.NewDatabase(db)
-	stateDb, err := state.New(parent.Root, database)
 
 	for _, certVote := range certificate.CertVoteSet {
 		vote := core.NewVoteDataFromCertVoteStorage(certVote, height, certificate.Round, certificate.Value)
 
 		mv := core.GetMinerVerifier(ar.config.Algorand, stateDb, vote.Address, vote.Height)
 
-		err = core.VerifySignatureAndCredential(mv, vote.SignBytes(), vote.ESignValue, &vote.Credential, stateDb, parent.Seed(), parent.TotalBalanceOfMiners)
+		err := core.VerifySignatureAndCredential(mv, vote.SignBytes(), vote.ESignValue, &vote.Credential, stateDb, parent.Seed(), parent.TotalBalanceOfMiners)
 		if err != nil {
 			return err
 		}
@@ -301,7 +313,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	// verify the credential of proposer
 	hash := header.Hash()
 	proposalLeader := core.NewProposalLeaderDataFromStorage(hash, height, &certificate.Proposal)
-	err = core.VerifySignatureAndCredential(proposerVerifier, proposalLeader.SignBytes(), proposalLeader.ESignValue, &proposalLeader.Credential, stateDb, parent.Seed(), parent.TotalBalanceOfMiners)
+	err := core.VerifySignatureAndCredential(proposerVerifier, proposalLeader.SignBytes(), proposalLeader.ESignValue, &proposalLeader.Credential, stateDb, parent.Seed(), parent.TotalBalanceOfMiners)
 	if err != nil {
 		return fmt.Errorf("VerifyProposalLeader error, vote:%v, err:%s", certificate.Proposal, err.Error())
 	}
@@ -310,12 +322,6 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	err = proposerVerifier.VerifySeed(height, parent.Seed(), parent.Hash(), header.Seed(), header.Certificate.SeedProof())
 	if err != nil {
 		return fmt.Errorf("verify sigParentSeed error: %s", err)
-	}
-
-	// check coinbase
-	if header.Coinbase != proposerVerifier.Coinbase() {
-		return fmt.Errorf("invalid coinbase in VerifySeal, header(%d) coinbase:%s, proposalLeader:%s, expected coinbase:%s",
-			height, header.Coinbase, header.Certificate.Proposer(), proposerVerifier.Coinbase())
 	}
 
 	return nil

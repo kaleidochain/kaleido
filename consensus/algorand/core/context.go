@@ -1016,6 +1016,11 @@ func (ctx *Context) handleProposalBlock(block *ProposalBlockData, from string) e
 		return err
 	}
 
+	if block.Block.Coinbase() != mv.coinbase {
+		return fmt.Errorf("verify coinbase failed, header(%d) coinbase:%s, proposalBlock:%s, expected coinbase:%s",
+			block.Block.NumberU64(), block.Block.Coinbase(), block, mv.coinbase)
+	}
+
 	ctx.broadcastMsg(HasProposalBlockMsg, block.ToHasProposalData())
 
 	ctx.state.OnProposalLeaderReceived(block.NewProposalLeaderData())

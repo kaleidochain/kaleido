@@ -48,8 +48,8 @@ type ChainReader interface {
 	// GetBlock retrieves a block from the database by hash and number.
 	GetBlock(hash common.Hash, number uint64) *types.Block
 
-	// StateAt returns a new mutable state based on a particular point in time.
-	StateAt(root common.Hash) (*state.StateDB, error)
+	// StateAtHeader returns a new mutable state based on the given-header.
+	StateAtHeader(header *types.Header) (*state.StateDB, error)
 }
 
 // Engine is an algorithm agnostic consensus engine.

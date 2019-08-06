@@ -113,7 +113,8 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 
 // currentState returns the light state of the current head header
 func (pool *TxPool) currentState(ctx context.Context) *state.StateDB {
-	return NewState(ctx, pool.chain.CurrentHeader(), pool.odr)
+	statedb, _ := NewState(ctx, pool.chain.CurrentHeader(), pool.odr)
+	return statedb
 }
 
 // GetNonce returns the "pending" nonce of a given address. It always queries
