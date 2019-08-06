@@ -261,7 +261,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	addrSet := make(map[string]struct{})
 	var stateDb *state.StateDB
 
-	if len(certificate.TrieProof) > 0 { // for blockchain sync
+	if len(certificate.TrieProof) > 0 { // for full/fast sync
 		err := core2.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
 		if err != nil {
 			return err
@@ -271,7 +271,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 		certificate.TrieProof.Store(db)
 		database := state.NewDatabase(db)
 		stateDb, err = state.New(parent.Root, database)
-	} else { // for lightchain sync
+	} else { // for light sync
 		var err error
 		stateDb, err = chain.StateAtHeader(parent)
 		if err != nil {
