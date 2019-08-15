@@ -20,19 +20,21 @@ type event struct {
 	Type   uint
 }
 
-func makeBlockGenerator(chain *Chain, maxHeight uint64, eventCh chan<- event) {
-	go func() {
-		parent := genesisHeader
-		for height := uint64(1); height < maxHeight; height++ {
-			header := NewHeader(height, parent)
-			fc := NewFinalCertificate(height, parent)
-			parent = header
+func blockGenerator(t *testing.T, chain *Chain, maxHeight uint64, eventCh chan<- event) {
+	parent := genesisHeader
+	for height := uint64(1); height < maxHeight; height++ {
+		header := NewHeader(height, parent)
+		fc := NewFinalCertificate(height, parent)
+		parent = header
 
-			chain.AddBlock(header, fc)
-			eventCh <- event{Height: header.Height, Type: newBlockEvent}
+		err := chain.AddBlock(header, fc)
+		if err != nil {
+			t.Errorf("AddBlock failed, height=%d, err=%v", header.Height, err)
 		}
-		close(eventCh)
-	}()
+
+		eventCh <- event{Height: header.Height, Type: newBlockEvent}
+	}
+	close(eventCh)
 }
 
 func makeStampingGenerator(config *Config, chain *Chain, eventCh <-chan event) <-chan *StampingCertificate {
@@ -60,12 +62,13 @@ func TestNewChain(t *testing.T) {
 	chain := NewChain()
 
 	eventCh := make(chan event, 100)
-	makeBlockGenerator(chain, maxHeight, eventCh)
+	go blockGenerator(t, chain, maxHeight, eventCh)
 	stampingCh := makeStampingGenerator(defaultConfig, chain, eventCh)
 
 	for s := range stampingCh {
-		if err := chain.AddStampingCertificate(s); err != nil {
-			t.Errorf("AddStampingCertificate(%d), err:%s", s.Height, err)
+		err := chain.AddStampingCertificate(s)
+		if err != nil {
+			t.Errorf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
 		}
 	}
 
