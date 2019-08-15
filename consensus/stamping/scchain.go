@@ -289,7 +289,7 @@ func (chain *Chain) Print() {
 	realLength := uint64(0)
 	prev := uint64(0)
 	line := 0
-	for height := uint64(0); height <= chain.currentHeight; height++ {
+	for height := uint64(1); height <= chain.currentHeight; height++ {
 		header := chain.headerChain[height]
 		fc := chain.fcChain[height]
 		sc := chain.scChain[height]
