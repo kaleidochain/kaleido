@@ -312,7 +312,7 @@ func (chain *Chain) Print() {
 
 		line += 1
 		fmt.Printf("%5d(%1s%1s%1s)->", height, fc, sc, h)
-		if line > 8 {
+		if line >= 8 {
 			fmt.Println()
 
 			line = 0
