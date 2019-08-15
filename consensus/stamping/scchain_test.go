@@ -1,7 +1,6 @@
 package stamping
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 )
@@ -47,7 +46,6 @@ func makeStampingGenerator(config *Config, chain *Chain, eventCh <-chan event) <
 
 			proofHeader := chain.Header(e.Height - config.B)
 			if rand.Intn(100) < config.Probability {
-				fmt.Printf("chain.Header(%d)\n", e.Height-config.B)
 				s := NewStampingCertificate(e.Height, proofHeader)
 				ch <- s
 			}

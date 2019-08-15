@@ -220,7 +220,8 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	// delete fc
 	// max(N-B, C+1, B+1)
 	start := MaxUint64(sc.Height-chain.scStatus.Proof, chain.scStatus.Candidate+1)
-	chain.deleteFC(start, sc.Height)
+	n := chain.deleteFC(start, sc.Height)
+	fmt.Printf("deleteFC range=[%d, %d] deleted=%d\n", start, sc.Height, n)
 
 	if sc.Height-chain.scStatus.Proof <= defaultConfig.B {
 		chain.scStatus.Candidate = sc.Height
@@ -233,7 +234,8 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	// trim( max(QB - B, Fz), min((C-B), QB)) // 开区间
 	start = MaxUint64(chain.scStatus.Proof-defaultConfig.B, chain.scStatus.Fz)
 	end := MinUint64(chain.scStatus.Candidate-defaultConfig.B, chain.scStatus.Proof)
-	chain.trim(start, end)
+	n = chain.trim(start, end)
+	fmt.Printf("trim range=[%d, %d] deleted=%d\n", start, end, n)
 
 	return nil
 }
@@ -251,10 +253,8 @@ func (chain *Chain) deleteFC(start, end uint64) int {
 	return count
 }
 
-func (chain *Chain) freeze(proof uint64) error {
+func (chain *Chain) freeze(proof uint64) {
 	chain.scStatus.Fz = proof
-
-	return nil
 }
 
 func (chain *Chain) trim(start, end uint64) int {
@@ -271,7 +271,6 @@ func (chain *Chain) trim(start, end uint64) int {
 		}
 
 		//chain.headerChain[height].Root = common.Hash{}
-		fmt.Printf("delete header(%d)\n", height)
 		delete(chain.headerChain, height)
 	}
 
