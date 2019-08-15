@@ -21,7 +21,7 @@ type event struct {
 
 func blockGenerator(t *testing.T, chain *Chain, maxHeight uint64, eventCh chan<- event) {
 	parent := genesisHeader
-	for height := uint64(1); height < maxHeight; height++ {
+	for height := uint64(1); height <= maxHeight; height++ {
 		header := NewHeader(height, parent)
 		fc := NewFinalCertificate(height, parent)
 		parent = header
