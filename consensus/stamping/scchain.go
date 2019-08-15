@@ -190,7 +190,7 @@ func (chain *Chain) AddStampingCertificate(sc *StampingCertificate) error {
 	if header == nil {
 		return fmt.Errorf("header(%d) not exists", sc.Height)
 	}
-	if _, ok := chain.fcChain[sc.Height]; ok {
+	if _, ok := chain.scChain[sc.Height]; ok {
 		return fmt.Errorf("stampingCertificate(%d) exists", sc.Height)
 	}
 	if sc.Height <= defaultConfig.B {
@@ -214,6 +214,8 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	if sc.Height <= chain.scStatus.Candidate {
 		return fmt.Errorf("sc(%d) lower than Candidate(%d)", sc.Height, chain.scStatus.Candidate)
 	}
+
+	chain.scChain[sc.Height] = sc
 
 	// delete fc
 	// max(N-B, C+1, B+1)

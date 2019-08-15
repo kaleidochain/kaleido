@@ -64,7 +64,9 @@ func TestNewChain(t *testing.T) {
 	stampingCh := makeStampingGenerator(defaultConfig, chain, eventCh)
 
 	for s := range stampingCh {
-		chain.AddStampingCertificate(s)
+		if err := chain.AddStampingCertificate(s); err != nil {
+			t.Errorf("AddStampingCertificate(%d), err:%s", s.Height, err)
+		}
 	}
 
 	chain.Print()
