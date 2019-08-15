@@ -351,5 +351,5 @@ func (chain *Chain) Print() {
 	fmt.Println()
 
 	fmt.Printf("Status: Fz: %d, Proof:%d, Candidate:%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
-	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%", chain.currentHeight, realLength, float64(realLength*10000/chain.currentHeight)/100)
+	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%\n", chain.currentHeight, realLength, float64(realLength*10000/chain.currentHeight)/100)
 }
