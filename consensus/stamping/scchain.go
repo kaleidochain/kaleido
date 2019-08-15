@@ -10,7 +10,7 @@ import (
 
 var (
 	defaultConfig = &Config{
-		B:           10,
+		B:           8,
 		Probability: 100,
 	}
 
@@ -284,32 +284,35 @@ func (chain *Chain) Print() {
 	prev := uint64(0)
 	line := 0
 	for height := uint64(0); height <= chain.scStatus.Candidate; height++ {
-		fc := ""
-		if _, ok := chain.fcChain[height]; ok {
-			fc = "F"
+		header := chain.headerChain[height]
+		fc := chain.fcChain[height]
+		sc := chain.scChain[height]
+
+		if header == nil {
+			if fc != nil {
+				panic(fmt.Sprintf("Unexpected! No header, but has FC, height=%d", height))
+			}
+			if sc != nil {
+				panic(fmt.Sprintf("Unexpected! No header, but has SC, height=%d", height))
+			}
+		}
+
+		fcTag := ""
+		if fc != nil {
+			fcTag = "F"
 
 			if _, ok := chain.headerChain[height-1]; !ok {
-				fc = "f"
-
+				fcTag = "f"
 			}
 		}
 
-		sc := ""
-		if _, ok := chain.scChain[height]; ok {
-			sc = "S"
+		scTag := ""
+		if sc != nil {
+			scTag = "S"
 
 			if _, ok := chain.headerChain[height-defaultConfig.B]; !ok {
-				sc = "s"
+				scTag = "s"
 			}
-		}
-
-		h := ""
-		if _, ok := chain.headerChain[height]; ok {
-			h = "H"
-		}
-
-		if fc == "" && sc == "" && h == "" {
-			continue
 		}
 
 		arrow := ""
@@ -318,8 +321,18 @@ func (chain *Chain) Print() {
 		}
 		prev = height
 
+		zpcTag := ""
+		switch height {
+		case chain.scStatus.Fz:
+			zpcTag = "Z"
+		case chain.scStatus.Proof:
+			zpcTag = "P"
+		case chain.scStatus.Candidate:
+			zpcTag = "C"
+		}
+
 		line += 1
-		fmt.Printf("%2s[%4d(%1s%1s%1s)]", arrow, height, fc, sc, h)
+		fmt.Printf("%2s[%4d(%1s%1s%1s)]", arrow, height, zpcTag, fcTag, scTag)
 		if line >= 8 {
 			fmt.Println()
 
