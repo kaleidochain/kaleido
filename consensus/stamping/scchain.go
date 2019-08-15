@@ -281,8 +281,9 @@ func (chain *Chain) Print() {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
+	prev := uint64(0)
 	line := 0
-	for height := uint64(0); height < chain.scStatus.Candidate; height++ {
+	for height := uint64(0); height <= chain.scStatus.Candidate; height++ {
 		fc := ""
 		if _, ok := chain.fcChain[height]; ok {
 			fc = "F"
@@ -311,8 +312,14 @@ func (chain *Chain) Print() {
 			continue
 		}
 
+		arrow := ""
+		if height > 0 && height-1 == prev {
+			arrow = "<-"
+		}
+		prev = height
+
 		line += 1
-		fmt.Printf("%5d(%1s%1s%1s)->", height, fc, sc, h)
+		fmt.Printf("%2s[%4d(%1s%1s%1s)]", arrow, height, fc, sc, h)
 		if line >= 8 {
 			fmt.Println()
 
