@@ -11,7 +11,7 @@ import (
 var (
 	defaultConfig = &Config{
 		B:           8,
-		Probability: 100,
+		Probability: 65,
 	}
 
 	genesisHeader = &Header{
@@ -126,7 +126,8 @@ type Chain struct {
 	fcChain     map[uint64]*FinalCertificate
 	scChain     map[uint64]*StampingCertificate
 
-	scStatus SCStatus
+	currentHeight uint64
+	scStatus      SCStatus
 }
 
 func NewChain() *Chain {
@@ -160,6 +161,9 @@ func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
+	if header.Height <= chain.currentHeight {
+		return fmt.Errorf("block(%d) lower than currentHeight(%d)", header.Height, chain.currentHeight)
+	}
 	if h := chain.header(header.Height); h != nil {
 		return fmt.Errorf("block(%d) exists", header.Height)
 	}
@@ -178,6 +182,7 @@ func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
 
 	chain.headerChain[header.Height] = header
 	chain.fcChain[fc.Height] = fc
+	chain.currentHeight = header.Height
 
 	return nil
 }
@@ -281,9 +286,10 @@ func (chain *Chain) Print() {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
+	realLength := uint64(0)
 	prev := uint64(0)
 	line := 0
-	for height := uint64(0); height <= chain.scStatus.Candidate; height++ {
+	for height := uint64(0); height <= chain.currentHeight; height++ {
 		header := chain.headerChain[height]
 		fc := chain.fcChain[height]
 		sc := chain.scChain[height]
@@ -295,7 +301,10 @@ func (chain *Chain) Print() {
 			if sc != nil {
 				panic(fmt.Sprintf("Unexpected! No header, but has SC, height=%d", height))
 			}
+			continue
 		}
+
+		realLength++
 
 		fcTag := ""
 		if fc != nil {
@@ -342,4 +351,5 @@ func (chain *Chain) Print() {
 	fmt.Println()
 
 	fmt.Printf("Status: Fz: %d, Proof:%d, Candidate:%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
+	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%", chain.currentHeight, realLength, float64(realLength*10000/chain.currentHeight)/100)
 }
