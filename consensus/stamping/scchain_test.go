@@ -1,6 +1,7 @@
 package stamping
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 )
@@ -19,19 +20,19 @@ type event struct {
 	Type   uint
 }
 
-func makeBlockGenerator(config *Config, chain *Chain, maxHeight uint64) <-chan block {
-	ch := make(chan block)
+func makeBlockGenerator(chain *Chain, maxHeight uint64, eventCh chan<- event) {
 	go func() {
 		parent := genesisHeader
 		for height := uint64(1); height < maxHeight; height++ {
 			header := NewHeader(height, parent)
 			fc := NewFinalCertificate(height, parent)
-			ch <- block{header, fc}
-		}
+			parent = header
 
-		close(ch)
+			chain.AddBlock(header, fc)
+			eventCh <- event{Height: header.Height, Type: newBlockEvent}
+		}
+		close(eventCh)
 	}()
-	return ch
 }
 
 func makeStampingGenerator(config *Config, chain *Chain, eventCh <-chan event) <-chan *StampingCertificate {
@@ -42,8 +43,9 @@ func makeStampingGenerator(config *Config, chain *Chain, eventCh <-chan event) <
 				continue
 			}
 
-			proofHeader := chain.Header(e.Height - config.B)
+			proofHeader := chain.header(e.Height - config.B)
 			if rand.Intn(100) < config.Probability {
+				fmt.Printf("chain.Header(%d)\n", e.Height-config.B)
 				s := NewStampingCertificate(e.Height, proofHeader)
 				ch <- s
 			}
@@ -57,27 +59,12 @@ func TestNewChain(t *testing.T) {
 	const maxHeight = 300
 	chain := NewChain()
 
-	blockCh := makeBlockGenerator(defaultConfig, chain, maxHeight)
-	eventCh := make(chan event)
+	eventCh := make(chan event, 100)
+	makeBlockGenerator(chain, maxHeight, eventCh)
 	stampingCh := makeStampingGenerator(defaultConfig, chain, eventCh)
 
-ForLoop:
-	for {
-		select {
-		case block, ok := <-blockCh:
-			if ok {
-				chain.AddBlock(block.header, block.fc)
-				eventCh <- event{Height: block.header.Height, Type: newBlockEvent}
-			} else {
-				close(eventCh)
-			}
-		case s, ok := <-stampingCh:
-			if ok {
-				chain.AddStampingCertificate(s)
-			} else {
-				break ForLoop
-			}
-		}
+	for s := range stampingCh {
+		chain.AddStampingCertificate(s)
 	}
 
 	chain.Print()

@@ -3,6 +3,7 @@ package stamping
 import (
 	"crypto/sha512"
 	"fmt"
+	"sync"
 
 	"github.com/kaleidochain/kaleido/common"
 )
@@ -10,7 +11,7 @@ import (
 var (
 	defaultConfig = &Config{
 		B:           10,
-		Probability: 65,
+		Probability: 100,
 	}
 
 	genesisHeader = &Header{
@@ -121,6 +122,7 @@ type SCStatus struct {
 
 type Chain struct {
 	headerChain map[uint64]*Header
+	mutexChain  sync.RWMutex
 	fcChain     map[uint64]*FinalCertificate
 	scChain     map[uint64]*StampingCertificate
 
@@ -144,19 +146,29 @@ func NewChain() *Chain {
 }
 
 func (chain *Chain) Header(height uint64) *Header {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	return chain.headerChain[height]
+}
+
+func (chain *Chain) header(height uint64) *Header {
 	return chain.headerChain[height]
 }
 
 func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
-	if _, ok := chain.headerChain[header.Height]; ok {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
+	if h := chain.header(header.Height); h != nil {
 		return fmt.Errorf("block(%d) exists", header.Height)
 	}
 	if _, ok := chain.fcChain[fc.Height]; ok {
 		return fmt.Errorf("finalCertificate(%d) exists", fc.Height)
 	}
 
-	parent, ok := chain.headerChain[header.Height-1]
-	if !ok {
+	parent := chain.header(header.Height - 1)
+	if parent == nil {
 		return fmt.Errorf("parent block(%d) not exists", header.Height-1)
 	}
 
@@ -171,8 +183,11 @@ func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
 }
 
 func (chain *Chain) AddStampingCertificate(sc *StampingCertificate) error {
-	header, ok := chain.headerChain[sc.Height]
-	if !ok {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
+	header := chain.header(sc.Height)
+	if header == nil {
 		return fmt.Errorf("header(%d) not exists", sc.Height)
 	}
 	if _, ok := chain.fcChain[sc.Height]; ok {
@@ -182,8 +197,8 @@ func (chain *Chain) AddStampingCertificate(sc *StampingCertificate) error {
 		return fmt.Errorf("stampingCertificate(%d) is lower than B(%d)", sc.Height, defaultConfig.B)
 	}
 
-	proofHeader, ok := chain.headerChain[sc.Height-defaultConfig.B]
-	if !ok {
+	proofHeader := chain.header(sc.Height - defaultConfig.B)
+	if proofHeader == nil {
 		return fmt.Errorf("proof header(%d) not exists", sc.Height-defaultConfig.B)
 	}
 
@@ -208,7 +223,7 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	if sc.Height-chain.scStatus.Proof <= defaultConfig.B {
 		chain.scStatus.Candidate = sc.Height
 	} else {
-		chain.Frozen(chain.scStatus.Proof)
+		chain.freeze(chain.scStatus.Proof)
 		chain.scStatus.Proof = chain.scStatus.Candidate
 		chain.scStatus.Candidate = sc.Height
 	}
@@ -216,7 +231,7 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	// trim( max(QB - B, Fz), min((C-B), QB)) // 开区间
 	start = MaxUint64(chain.scStatus.Proof-defaultConfig.B, chain.scStatus.Fz)
 	end := MinUint64(chain.scStatus.Candidate-defaultConfig.B, chain.scStatus.Proof)
-	chain.Trim(start, end)
+	chain.trim(start, end)
 
 	return nil
 }
@@ -234,13 +249,13 @@ func (chain *Chain) deleteFC(start, end uint64) int {
 	return count
 }
 
-func (chain *Chain) Frozen(proof uint64) error {
+func (chain *Chain) freeze(proof uint64) error {
 	chain.scStatus.Fz = proof
 
 	return nil
 }
 
-func (chain *Chain) Trim(start, end uint64) int {
+func (chain *Chain) trim(start, end uint64) int {
 	count := 0
 	for height := start + 1; height < end; height++ {
 		if _, ok := chain.fcChain[height]; ok {
@@ -249,11 +264,12 @@ func (chain *Chain) Trim(start, end uint64) int {
 
 		delete(chain.scChain, height)
 
-		if _, ok := chain.headerChain[height]; ok {
+		if h := chain.header(height); h != nil {
 			count += 1
 		}
 
 		//chain.headerChain[height].Root = common.Hash{}
+		fmt.Printf("delete header(%d)\n", height)
 		delete(chain.headerChain, height)
 	}
 
@@ -261,13 +277,16 @@ func (chain *Chain) Trim(start, end uint64) int {
 }
 
 func (chain *Chain) Print() {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
 	line := 0
 	for height := uint64(0); height < chain.scStatus.Candidate; height++ {
 		fc := ""
 		if _, ok := chain.fcChain[height]; ok {
 			fc = "F"
 
-			if _, ok := chain.fcChain[height-1]; !ok {
+			if _, ok := chain.headerChain[height-1]; !ok {
 				fc = "f"
 
 			}
