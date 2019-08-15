@@ -131,14 +131,18 @@ func NewChain() *Chain {
 		fcChain:     make(map[uint64]*FinalCertificate),
 		scChain:     make(map[uint64]*StampingCertificate),
 		scStatus: SCStatus{
-			Candidate: 0, // TODO: Candidate default as Proof(B)
-			Proof:     0,
-			Fz:        0,
+			Candidate: defaultConfig.B,
+			Proof:     defaultConfig.B,
+			Fz:        defaultConfig.B,
 		},
 	}
 	chain.headerChain[0] = genesisHeader
 
 	return chain
+}
+
+func (chain *Chain) Header(height uint64) *Header {
+	return chain.headerChain[height]
 }
 
 func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
@@ -167,7 +171,7 @@ func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
 func (chain *Chain) AddStampingCertificate(sc *StampingCertificate) error {
 	header, ok := chain.headerChain[sc.Height]
 	if !ok {
-		return fmt.Errorf("block(%d) not exists", sc.Height)
+		return fmt.Errorf("header(%d) not exists", sc.Height)
 	}
 	if _, ok := chain.fcChain[sc.Height]; ok {
 		return fmt.Errorf("stampingCertificate(%d) exists", sc.Height)
@@ -178,7 +182,7 @@ func (chain *Chain) AddStampingCertificate(sc *StampingCertificate) error {
 
 	proofHeader, ok := chain.headerChain[sc.Height-defaultConfig.B]
 	if !ok {
-		return fmt.Errorf("proof block(%d) not exists", sc.Height-defaultConfig.B)
+		return fmt.Errorf("proof header(%d) not exists", sc.Height-defaultConfig.B)
 	}
 
 	if !sc.Verify(header, proofHeader) {
@@ -188,16 +192,17 @@ func (chain *Chain) AddStampingCertificate(sc *StampingCertificate) error {
 	return chain.addStampingCertificate(sc)
 }
 
+//Keeping proof-objects up-to-date
 func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	if sc.Height <= chain.scStatus.Candidate {
 		return fmt.Errorf("sc(%d) lower than Candidate(%d)", sc.Height, chain.scStatus.Candidate)
 	}
 
 	// delete fc
-	start := MaxUint64(MaxUint64(chain.scStatus.Candidate+1, chain.scStatus.Candidate-chain.scStatus.Proof), defaultConfig.B+1)
+	// max(N-B, C+1, B+1)
+	start := MaxUint64(sc.Height-chain.scStatus.Proof, chain.scStatus.Candidate+1)
 	chain.deleteFC(start, sc.Height)
 
-	//Keeping proof-objects up-to-date
 	if sc.Height-chain.scStatus.Proof <= defaultConfig.B {
 		chain.scStatus.Candidate = sc.Height
 	} else {
@@ -235,15 +240,19 @@ func (chain *Chain) Frozen(proof uint64) error {
 
 func (chain *Chain) Trim(start, end uint64) int {
 	count := 0
-	for i := start + 1; i < end; i++ {
-		delete(chain.scChain, i)
+	for height := start + 1; height < end; height++ {
+		if _, ok := chain.fcChain[height]; ok {
+			panic(fmt.Sprintf("fc(%d) exist", height))
+		}
 
-		if _, ok := chain.headerChain[i]; ok {
+		delete(chain.scChain, height)
+
+		if _, ok := chain.headerChain[height]; ok {
 			count += 1
 		}
 
-		//chain.headerChain[i].Root = common.Hash{}
-		delete(chain.headerChain, i)
+		//chain.headerChain[height].Root = common.Hash{}
+		delete(chain.headerChain, height)
 	}
 
 	return count
