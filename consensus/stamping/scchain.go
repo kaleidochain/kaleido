@@ -9,7 +9,8 @@ import (
 
 var (
 	defaultConfig = &Config{
-		B: 10,
+		B:           10,
+		Probability: 65,
 	}
 
 	genesisHeader = &Header{
@@ -33,7 +34,8 @@ func MinUint64(a, b uint64) uint64 {
 }
 
 type Config struct {
-	B uint64
+	B           uint64
+	Probability int
 }
 
 type Header struct {
