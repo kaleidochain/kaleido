@@ -10,7 +10,7 @@ import (
 
 var (
 	defaultConfig = &Config{
-		B:           8,
+		B:           100,
 		Probability: 65,
 	}
 
@@ -153,14 +153,53 @@ func (chain *Chain) Header(height uint64) *Header {
 	return chain.headerChain[height]
 }
 
+func (chain *Chain) FinalCertificate(height uint64) *FinalCertificate {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	return chain.fcChain[height]
+}
+
 func (chain *Chain) header(height uint64) *Header {
 	return chain.headerChain[height]
 }
 
-func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
+func (chain *Chain) StampingCertificate(height uint64) *StampingCertificate {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	return chain.scChain[height]
+}
+
+func (chain *Chain) hasHeader(height uint64) bool {
+	_, ok := chain.headerChain[height]
+	return ok
+}
+
+func (chain *Chain) addHeader(header *Header) error {
+	if _, ok := chain.headerChain[header.Height]; ok {
+		return fmt.Errorf("header(%d) exists", header.Height)
+	}
+	nextHeader, ok := chain.headerChain[header.Height+1]
+	if !ok {
+		return fmt.Errorf("next header(%d) not exists", header.Height+1)
+	}
+	if nextHeader.ParentHash != header.Hash() {
+		return fmt.Errorf("next header(%d) ParentHash != header(%d).Hash", header.Height+1, header.Height)
+	}
+	chain.headerChain[header.Height] = header
+
+	return nil
+}
+
+func (chain *Chain) AddHeader(header *Header) error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
+	return chain.addHeader(header)
+}
+
+func (chain *Chain) addBlock(header *Header, fc *FinalCertificate) error {
 	if header.Height <= chain.currentHeight {
 		return fmt.Errorf("block(%d) lower than currentHeight(%d)", header.Height, chain.currentHeight)
 	}
@@ -187,34 +226,13 @@ func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
 	return nil
 }
 
-func (chain *Chain) AddStampingCertificate(sc *StampingCertificate) error {
+func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
-	header := chain.header(sc.Height)
-	if header == nil {
-		return fmt.Errorf("header(%d) not exists", sc.Height)
-	}
-	if _, ok := chain.scChain[sc.Height]; ok {
-		return fmt.Errorf("stampingCertificate(%d) exists", sc.Height)
-	}
-	if sc.Height <= defaultConfig.B {
-		return fmt.Errorf("stampingCertificate(%d) is lower than B(%d)", sc.Height, defaultConfig.B)
-	}
-
-	proofHeader := chain.header(sc.Height - defaultConfig.B)
-	if proofHeader == nil {
-		return fmt.Errorf("proof header(%d) not exists", sc.Height-defaultConfig.B)
-	}
-
-	if !sc.Verify(header, proofHeader) {
-		return fmt.Errorf("sc(%d) invalid", sc.Height)
-	}
-
-	return chain.addStampingCertificate(sc)
+	return chain.addBlock(header, fc)
 }
 
-//Keeping proof-objects up-to-date
 func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	if sc.Height <= chain.scStatus.Candidate {
 		return fmt.Errorf("sc(%d) lower than Candidate(%d)", sc.Height, chain.scStatus.Candidate)
@@ -244,6 +262,14 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	//fmt.Printf("trim range=[%d, %d] deleted=%d\n", start, end, n)
 
 	return nil
+}
+
+//Keeping proof-objects up-to-date
+func (chain *Chain) AddStampingCertificate(sc *StampingCertificate) error {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
+	return chain.addStampingCertificate(sc)
 }
 
 func (chain *Chain) deleteFC(start, end uint64) int {
@@ -353,4 +379,72 @@ func (chain *Chain) Print() {
 
 	fmt.Printf("Status: Fz: %d, Proof:%d, Candidate:%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
 	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%\n", chain.currentHeight, realLength, float64(realLength*10000/chain.currentHeight)/100)
+}
+
+func (chain *Chain) Sync(other *Chain) error {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
+	for height := uint64(1); height <= defaultConfig.B; height++ {
+		header := other.Header(height)
+		fc := other.FinalCertificate(height)
+
+		if err := chain.addBlock(header, fc); err != nil {
+			return err
+		}
+	}
+
+	proofHeight := defaultConfig.B
+	for height := proofHeight + defaultConfig.B; height <= other.scStatus.Fz; {
+		sc := other.StampingCertificate(height)
+		if sc != nil {
+			for h := proofHeight - 1; h >= height-defaultConfig.B && h > proofHeight-defaultConfig.B; h-- {
+				if h <= proofHeight-defaultConfig.B {
+					panic("never here")
+				}
+				if chain.hasHeader(h) {
+					continue
+				}
+				header := other.Header(h)
+				if header == nil {
+					return fmt.Errorf("rollback Header(%d) not exists", h)
+				}
+				if err := chain.addHeader(other.Header(h)); err != nil {
+					return err
+				}
+				// fetch state
+			}
+
+			if err := chain.addStampingCertificate(sc); err != nil {
+				// TODO: 并发处理还需要更一步处理
+				return err
+			}
+
+			proofHeight = height
+			height += defaultConfig.B
+		} else {
+			height -= 1
+			if height > proofHeight {
+				continue
+			}
+
+			for h := proofHeight + uint64(1); h <= other.scStatus.Fz; h++ {
+				header := other.Header(h)
+				fc := other.FinalCertificate(h)
+
+				if err := chain.addBlock(header, fc); err != nil {
+					return err
+				}
+
+				if sc := other.StampingCertificate(h + defaultConfig.B); sc != nil {
+					proofHeight = h
+					height = proofHeight + defaultConfig.B
+					break
+				}
+			}
+
+		}
+	}
+
+	return nil
 }

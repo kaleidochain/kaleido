@@ -55,8 +55,7 @@ func makeStampingGenerator(config *Config, chain *Chain, eventCh <-chan event) <
 	return ch
 }
 
-func TestNewChain(t *testing.T) {
-	const maxHeight = 300
+func buildChain(t *testing.T, maxHeight uint64) *Chain {
 	chain := NewChain()
 
 	eventCh := make(chan event, 100)
@@ -67,8 +66,28 @@ func TestNewChain(t *testing.T) {
 		err := chain.AddStampingCertificate(s)
 		if err != nil {
 			t.Errorf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+			return nil
 		}
 	}
 
+	return chain
+}
+
+func TestNewChain(t *testing.T) {
+	const maxHeight = 100000
+	chain := buildChain(t, maxHeight)
+	chain.Print()
+}
+
+func TestSyncChain(t *testing.T) {
+	const maxHeight = 10000
+	other := buildChain(t, maxHeight)
+	other.Print()
+
+	t.Log("---------------------------------after sync-----------------------------------------------------")
+	chain := NewChain()
+	if err := chain.Sync(other); err != nil {
+		t.Errorf("sync error, err:%s", err)
+	}
 	chain.Print()
 }
