@@ -224,7 +224,7 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 
 	// delete fc
 	// max(N-B, C+1, B+1)
-	start := MaxUint64(sc.Height-chain.scStatus.Proof, chain.scStatus.Candidate+1)
+	start := MaxUint64(sc.Height-defaultConfig.B+1, chain.scStatus.Candidate+1)
 	n := chain.deleteFC(start, sc.Height)
 	fmt.Printf("deleteFC range=[%d, %d] deleted=%d\n", start, sc.Height, n)
 
