@@ -1,6 +1,7 @@
 package stamping
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 )
@@ -80,14 +81,15 @@ func TestNewChain(t *testing.T) {
 }
 
 func TestSyncChain(t *testing.T) {
-	const maxHeight = 10000
+	const maxHeight = 1000
 	other := buildChain(t, maxHeight)
 	other.Print()
 
-	t.Log("---------------------------------after sync-----------------------------------------------------")
+	fmt.Println("---------------------------------after sync-----------------------------------------------------")
 	chain := NewChain()
 	if err := chain.Sync(other); err != nil {
 		t.Errorf("sync error, err:%s", err)
+		//return
 	}
 	chain.Print()
 }

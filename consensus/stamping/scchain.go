@@ -10,7 +10,7 @@ import (
 
 var (
 	defaultConfig = &Config{
-		B:           100,
+		B:           20,
 		Probability: 65,
 	}
 
@@ -146,22 +146,11 @@ func NewChain() *Chain {
 	return chain
 }
 
-func (chain *Chain) Header(height uint64) *Header {
-	chain.mutexChain.RLock()
-	defer chain.mutexChain.RUnlock()
-
-	return chain.headerChain[height]
-}
-
 func (chain *Chain) FinalCertificate(height uint64) *FinalCertificate {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
 	return chain.fcChain[height]
-}
-
-func (chain *Chain) header(height uint64) *Header {
-	return chain.headerChain[height]
 }
 
 func (chain *Chain) StampingCertificate(height uint64) *StampingCertificate {
@@ -171,17 +160,36 @@ func (chain *Chain) StampingCertificate(height uint64) *StampingCertificate {
 	return chain.scChain[height]
 }
 
+func (chain *Chain) Header(height uint64) *Header {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	return chain.headerChain[height]
+}
+
+func (chain *Chain) header(height uint64) *Header {
+	return chain.headerChain[height]
+}
+
 func (chain *Chain) hasHeader(height uint64) bool {
 	_, ok := chain.headerChain[height]
 	return ok
 }
 
-func (chain *Chain) addHeader(header *Header) error {
+func (chain *Chain) AddTailHeader(header *Header) error {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
+	return chain.addTailHeader(header)
+}
+
+func (chain *Chain) addTailHeader(header *Header) error {
 	if _, ok := chain.headerChain[header.Height]; ok {
 		return fmt.Errorf("header(%d) exists", header.Height)
 	}
 	nextHeader, ok := chain.headerChain[header.Height+1]
 	if !ok {
+		fmt.Printf("header(%d)\n", header.Height)
 		return fmt.Errorf("next header(%d) not exists", header.Height+1)
 	}
 	if nextHeader.ParentHash != header.Hash() {
@@ -192,11 +200,28 @@ func (chain *Chain) addHeader(header *Header) error {
 	return nil
 }
 
-func (chain *Chain) AddHeader(header *Header) error {
+func (chain *Chain) AddRawHeader(header *Header) error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
-	return chain.addHeader(header)
+	return chain.addRawHeader(header)
+}
+
+func (chain *Chain) addRawHeader(header *Header) error {
+	if _, ok := chain.headerChain[header.Height]; ok {
+		return fmt.Errorf("proofHeader(%d) exists", header.Height)
+	}
+
+	chain.headerChain[header.Height] = header
+
+	return nil
+}
+
+func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
+	return chain.addBlock(header, fc)
 }
 
 func (chain *Chain) addBlock(header *Header, fc *FinalCertificate) error {
@@ -224,13 +249,6 @@ func (chain *Chain) addBlock(header *Header, fc *FinalCertificate) error {
 	chain.currentHeight = header.Height
 
 	return nil
-}
-
-func (chain *Chain) AddBlock(header *Header, fc *FinalCertificate) error {
-	chain.mutexChain.Lock()
-	defer chain.mutexChain.Unlock()
-
-	return chain.addBlock(header, fc)
 }
 
 func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
@@ -316,7 +334,7 @@ func (chain *Chain) Print() {
 	realLength := uint64(0)
 	prev := uint64(0)
 	line := 0
-	for height := uint64(1); height <= chain.currentHeight; height++ {
+	for height := uint64(1); height <= chain.scStatus.Candidate; height++ {
 		header := chain.headerChain[height]
 		fc := chain.fcChain[height]
 		sc := chain.scChain[height]
@@ -398,6 +416,16 @@ func (chain *Chain) Sync(other *Chain) error {
 	for height := proofHeight + defaultConfig.B; height <= other.scStatus.Fz; {
 		sc := other.StampingCertificate(height)
 		if sc != nil {
+			if scHeader := other.Header(height); scHeader == nil {
+				return fmt.Errorf("other chain sc(%d) cannt find header(%d)", sc.Height, height)
+			} else {
+				chain.addRawHeader(scHeader)
+			}
+			if proofHeader := other.Header(height - defaultConfig.B); proofHeader == nil {
+				return fmt.Errorf("other chain sc(%d) cannt find proofHeader(%d)", sc.Height, height-defaultConfig.B)
+			} else {
+				chain.addRawHeader(proofHeader)
+			}
 			for h := proofHeight - 1; h >= height-defaultConfig.B && h > proofHeight-defaultConfig.B; h-- {
 				if h <= proofHeight-defaultConfig.B {
 					panic("never here")
@@ -409,7 +437,7 @@ func (chain *Chain) Sync(other *Chain) error {
 				if header == nil {
 					return fmt.Errorf("rollback Header(%d) not exists", h)
 				}
-				if err := chain.addHeader(other.Header(h)); err != nil {
+				if err := chain.addTailHeader(other.Header(h)); err != nil {
 					return err
 				}
 				// fetch state
