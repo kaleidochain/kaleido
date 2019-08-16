@@ -10,7 +10,7 @@ import (
 
 var (
 	defaultConfig = &Config{
-		B:           20,
+		B:           25,
 		Probability: 65,
 	}
 
@@ -209,7 +209,7 @@ func (chain *Chain) AddRawHeader(header *Header) error {
 
 func (chain *Chain) addRawHeader(header *Header) error {
 	if _, ok := chain.headerChain[header.Height]; ok {
-		return fmt.Errorf("proofHeader(%d) exists", header.Height)
+		return fmt.Errorf("rawHeader(%d) exists", header.Height)
 	}
 
 	chain.headerChain[header.Height] = header
@@ -263,7 +263,7 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	start := MaxUint64(sc.Height-defaultConfig.B+1, chain.scStatus.Candidate+1)
 	n := chain.deleteFC(start, sc.Height)
 	_ = n
-	//fmt.Printf("deleteFC range=[%d, %d] deleted=%d\n", start, sc.Height, n)
+	fmt.Printf("%d deleteFC range=[%d, %d] deleted=%d\n", sc.Height, start, sc.Height, n)
 
 	if sc.Height-chain.scStatus.Proof <= defaultConfig.B {
 		chain.scStatus.Candidate = sc.Height
@@ -277,7 +277,7 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	start = MaxUint64(chain.scStatus.Proof-defaultConfig.B, chain.scStatus.Fz)
 	end := MinUint64(chain.scStatus.Candidate-defaultConfig.B, chain.scStatus.Proof)
 	n = chain.trim(start, end)
-	//fmt.Printf("trim range=[%d, %d] deleted=%d\n", start, end, n)
+	fmt.Printf("trim range=[%d, %d] deleted=%d\n", start, end, n)
 
 	return nil
 }
@@ -413,18 +413,15 @@ func (chain *Chain) Sync(other *Chain) error {
 	}
 
 	proofHeight := defaultConfig.B
-	for height := proofHeight + defaultConfig.B; height <= other.scStatus.Fz; {
+	for height := proofHeight + defaultConfig.B; height <= other.scStatus.Candidate; {
 		sc := other.StampingCertificate(height)
 		if sc != nil {
 			if scHeader := other.Header(height); scHeader == nil {
 				return fmt.Errorf("other chain sc(%d) cannt find header(%d)", sc.Height, height)
 			} else {
-				chain.addRawHeader(scHeader)
-			}
-			if proofHeader := other.Header(height - defaultConfig.B); proofHeader == nil {
-				return fmt.Errorf("other chain sc(%d) cannt find proofHeader(%d)", sc.Height, height-defaultConfig.B)
-			} else {
-				chain.addRawHeader(proofHeader)
+				if err := chain.addRawHeader(scHeader); err != nil {
+					return err
+				}
 			}
 			for h := proofHeight - 1; h >= height-defaultConfig.B && h > proofHeight-defaultConfig.B; h-- {
 				if h <= proofHeight-defaultConfig.B {
