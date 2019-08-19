@@ -121,3 +121,88 @@ func TestAutoSyncChain(t *testing.T) {
 		}
 	}
 }
+
+//
+func TestSyncWhenFPNearAndPCFurtherThanB(t *testing.T) {
+	const maxHeight = 130
+
+	defaultConfig.B = 20
+
+	parent := genesisHeader
+	chain := NewChain()
+	for height := uint64(1); height <= maxHeight; height++ {
+		header := NewHeader(height, parent)
+		fc := NewFinalCertificate(height, parent)
+		parent = header
+
+		err := chain.AddBlock(header, fc)
+		if err != nil {
+			t.Fatalf("AddBlock failed, height=%d, err=%v", header.Height, err)
+		}
+	}
+
+	var height uint64 = 0
+
+	// 20-->40->41-->60->61------>130
+	// 40
+	{
+		height = 40
+		proofHeader := chain.Header(height - defaultConfig.B)
+		s := NewStampingCertificate(height, proofHeader)
+		err := chain.AddStampingCertificate(s)
+		if err != nil {
+			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+		}
+	}
+	// 41
+	{
+		height = 41
+		proofHeader := chain.Header(height - defaultConfig.B)
+		s := NewStampingCertificate(height, proofHeader)
+		err := chain.AddStampingCertificate(s)
+		if err != nil {
+			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+		}
+	}
+
+	// 60
+	{
+		height = 60
+		proofHeader := chain.Header(height - defaultConfig.B)
+		s := NewStampingCertificate(height, proofHeader)
+		err := chain.AddStampingCertificate(s)
+		if err != nil {
+			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+		}
+	}
+	// 61
+	{
+		height = 61
+		proofHeader := chain.Header(height - defaultConfig.B)
+		s := NewStampingCertificate(height, proofHeader)
+		err := chain.AddStampingCertificate(s)
+		if err != nil {
+			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+		}
+	}
+
+	// 130
+	{
+		height = 130
+		proofHeader := chain.Header(height - defaultConfig.B)
+		s := NewStampingCertificate(height, proofHeader)
+		err := chain.AddStampingCertificate(s)
+		if err != nil {
+			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+		}
+	}
+
+	// sync
+	other := NewChain()
+	if err := other.Sync(chain); err != nil {
+		chain.Print()
+		fmt.Println("---------------------------------after-----------------------------------------------------")
+		other.Print()
+		t.Fatalf("sync error, err:%s", err)
+	}
+}
