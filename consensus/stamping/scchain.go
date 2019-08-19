@@ -10,8 +10,8 @@ import (
 
 var (
 	defaultConfig = &Config{
-		B:           24,
-		Probability: 35,
+		B:           37,
+		Probability: 55,
 	}
 
 	genesisHeader = &Header{
@@ -154,11 +154,26 @@ func (chain *Chain) FinalCertificate(height uint64) *FinalCertificate {
 	return chain.fcChain[height]
 }
 
+func (chain *Chain) finalCertificate(height uint64) *FinalCertificate {
+	return chain.fcChain[height]
+}
+
 func (chain *Chain) HeaderAndStampingCertificate(height uint64) (*Header, *StampingCertificate) {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
 	return chain.headerChain[height], chain.scChain[height]
+}
+
+func (chain *Chain) StampingCertificate(height uint64) *StampingCertificate {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	return chain.stampingCertificate(height)
+}
+
+func (chain *Chain) stampingCertificate(height uint64) *StampingCertificate {
+	return chain.scChain[height]
 }
 
 func (chain *Chain) Header(height uint64) *Header {
@@ -296,7 +311,7 @@ func (chain *Chain) updateStampingCertificate(height uint64) {
 	start := MaxUint64(height-defaultConfig.B+1, chain.scStatus.Candidate+1)
 	n := chain.deleteFC(start, height)
 	_ = n
-	fmt.Printf("%d deleteFC range=[%d, %d] deleted=%d\n", height, start, height, n)
+	//fmt.Printf("%d deleteFC range=[%d, %d] deleted=%d\n", height, start, height, n)
 
 	if height-chain.scStatus.Proof <= defaultConfig.B {
 		chain.scStatus.Candidate = height
@@ -310,7 +325,7 @@ func (chain *Chain) updateStampingCertificate(height uint64) {
 	start = MaxUint64(chain.scStatus.Proof-defaultConfig.B, chain.scStatus.Fz)
 	end := MinUint64(chain.scStatus.Candidate-defaultConfig.B, chain.scStatus.Proof)
 	n = chain.trim(start, end)
-	fmt.Printf("trim range=[%d, %d] deleted=%d\n", start, end, n)
+	//fmt.Printf("trim range=[%d, %d] deleted=%d\n", start, end, n)
 
 	return
 }
@@ -446,8 +461,8 @@ func (chain *Chain) Sync(other *Chain) error {
 	}
 
 	proofHeight := defaultConfig.B
-	for height := proofHeight + defaultConfig.B; height <= other.scStatus.Candidate; {
-		fmt.Printf("process h(%d), p(%d), ch:%d\n", height, proofHeight, other.currentHeight)
+	for height := proofHeight + defaultConfig.B; height < other.scStatus.Candidate; {
+		//fmt.Printf("process h(%d), p(%d), ch:%d\n", height, proofHeight, other.currentHeight)
 		scHeader, sc := other.HeaderAndStampingCertificate(height)
 		if sc != nil {
 			if scHeader == nil {
@@ -541,4 +556,133 @@ func (chain *Chain) Sync(other *Chain) error {
 		}
 	}
 	return nil
+}
+
+func (chain *Chain) Equal(other *Chain) (bool, error) {
+	if chain.scStatus != other.scStatus {
+		return false, fmt.Errorf("status not equal, this:%v, other:%v", chain.scStatus, other.scStatus)
+	}
+
+	for height := uint64(1); height <= chain.scStatus.Fz; height++ {
+		header := chain.header(height)
+		oHeader := other.Header(height)
+		if !EqualHeader(header, oHeader) {
+			return false, fmt.Errorf("header or other not exists, height:%d, this:%v, other:%v", height, header, oHeader)
+		}
+
+		fc := chain.finalCertificate(height)
+		ofc := other.FinalCertificate(height)
+		if !EqualFinalCertificate(fc, ofc) {
+			return false, fmt.Errorf("fc not equal, height:%d, this:%v, other:%v", height, fc, ofc)
+		}
+
+		/*
+			sc := chain.stampingCertificate(height)
+			osc := other.StampingCertificate(height)
+			if !EqualStampingCertificate(sc, osc) {
+				return false, fmt.Errorf("sc not equal, height:%d, this:%v, other:%v", height, sc, osc)
+			}
+		*/
+	}
+
+	for height := chain.scStatus.Fz + 1; height < chain.currentHeight; height++ {
+		if height == chain.scStatus.Proof || height == chain.scStatus.Candidate {
+			continue
+		}
+
+		header := chain.header(height)
+		oHeader := other.Header(height)
+		if !EqualHeader(header, oHeader) {
+			return false, fmt.Errorf("header or other not exists, height:%d, this:%v, other:%v", height, header, oHeader)
+		}
+
+		fc := chain.finalCertificate(height)
+		ofc := other.FinalCertificate(height)
+		if !EqualFinalCertificate(fc, ofc) {
+			return false, fmt.Errorf("fc not equal, height:%d, this:%v, other:%v", height, fc, ofc)
+		}
+	}
+	// proof
+	{
+		height := chain.scStatus.Proof
+
+		header := chain.header(height)
+		oHeader := other.Header(height)
+		if !EqualHeader(header, oHeader) {
+			return false, fmt.Errorf("header or other not exists, height:%d, this:%v, other:%v", height, header, oHeader)
+		}
+
+		fc := chain.finalCertificate(height)
+		ofc := other.FinalCertificate(height)
+		if !EqualFinalCertificate(fc, ofc) {
+			return false, fmt.Errorf("fc not equal, height:%d, this:%v, other:%v", height, fc, ofc)
+		}
+
+		sc := chain.stampingCertificate(height)
+		osc := other.StampingCertificate(height)
+		if !EqualStampingCertificate(sc, osc) {
+			return false, fmt.Errorf("sc not equal, height:%d, this:%v, other:%v", height, sc, osc)
+		}
+	}
+
+	// C
+	{
+		height := chain.scStatus.Candidate
+
+		header := chain.header(height)
+		oHeader := other.Header(height)
+		if !EqualHeader(header, oHeader) {
+			return false, fmt.Errorf("header or other not exists, height:%d, this:%v, other:%v", height, header, oHeader)
+		}
+
+		fc := chain.finalCertificate(height)
+		ofc := other.FinalCertificate(height)
+		if !EqualFinalCertificate(fc, ofc) {
+			return false, fmt.Errorf("fc not equal, height:%d, this:%v, other:%v", height, fc, ofc)
+		}
+
+		sc := chain.stampingCertificate(height)
+		osc := other.StampingCertificate(height)
+		if !EqualStampingCertificate(sc, osc) {
+			return false, fmt.Errorf("sc not equal, height:%d, this:%v, other:%v", height, sc, osc)
+		}
+	}
+
+	return true, nil
+}
+
+func EqualHeader(a, b *Header) bool {
+	if a == nil && b == nil {
+		return true
+	}
+
+	if a != nil && b != nil {
+		return *a == *b
+	}
+
+	return false
+}
+
+func EqualFinalCertificate(a, b *FinalCertificate) bool {
+	if a == nil && b == nil {
+		return true
+	}
+
+	if a != nil && b != nil {
+		return *a == *b
+	}
+
+	return false
+}
+
+func EqualStampingCertificate(a, b *StampingCertificate) bool {
+	if a == nil && b == nil {
+		return true
+	}
+
+	if a != nil && b != nil {
+		return *a == *b
+	}
+
+	return false
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
+	"time"
 )
 
 type block struct {
@@ -64,7 +65,6 @@ func buildChain(t *testing.T, maxHeight uint64) *Chain {
 	stampingCh := makeStampingGenerator(defaultConfig, chain, eventCh)
 
 	for s := range stampingCh {
-		fmt.Printf("add height %d\n", s.Height)
 		err := chain.AddStampingCertificate(s)
 		if err != nil {
 			t.Errorf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
@@ -95,4 +95,29 @@ func TestSyncChain(t *testing.T) {
 		//return
 	}
 	chain.Print()
+}
+
+func TestAutoSyncChain(t *testing.T) {
+	const count = 100
+	rand.Seed(time.Now().UnixNano())
+
+	for i := 0; i < count; i++ {
+		const maxHeight = 10105
+		other := buildChain(t, maxHeight)
+
+		chain := NewChain()
+		if err := chain.Sync(other); err != nil {
+			other.Print()
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			chain.Print()
+			t.Fatalf("sync error, err:%s", err)
+		}
+
+		if equal, err := chain.Equal(other); !equal {
+			other.Print()
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			chain.Print()
+			t.Fatal(err.Error())
+		}
+	}
 }
