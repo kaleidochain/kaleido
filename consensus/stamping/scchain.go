@@ -10,8 +10,8 @@ import (
 
 var (
 	defaultConfig = &Config{
-		B:           25,
-		Probability: 65,
+		B:           24,
+		Probability: 35,
 	}
 
 	genesisHeader = &Header{
@@ -96,7 +96,8 @@ func NewStampingCertificate(height uint64, proofHeader *Header) *StampingCertifi
 }
 
 func (sc *StampingCertificate) Verify(header, proofHeader *Header) bool {
-	return sc.Height == header.Height &&
+	return sc.Height > defaultConfig.B &&
+		sc.Height == header.Height &&
 		sc.Height == proofHeader.Height+defaultConfig.B &&
 		sc.Seed == proofHeader.Seed &&
 		sc.Root == proofHeader.Root
@@ -153,11 +154,11 @@ func (chain *Chain) FinalCertificate(height uint64) *FinalCertificate {
 	return chain.fcChain[height]
 }
 
-func (chain *Chain) StampingCertificate(height uint64) *StampingCertificate {
+func (chain *Chain) HeaderAndStampingCertificate(height uint64) (*Header, *StampingCertificate) {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
-	return chain.scChain[height]
+	return chain.headerChain[height], chain.scChain[height]
 }
 
 func (chain *Chain) Header(height uint64) *Header {
@@ -176,14 +177,14 @@ func (chain *Chain) hasHeader(height uint64) bool {
 	return ok
 }
 
-func (chain *Chain) AddTailHeader(header *Header) error {
+func (chain *Chain) AddHeader(header *Header) error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
-	return chain.addTailHeader(header)
+	return chain.addHeader(header)
 }
 
-func (chain *Chain) addTailHeader(header *Header) error {
+func (chain *Chain) addHeader(header *Header) error {
 	if _, ok := chain.headerChain[header.Height]; ok {
 		return fmt.Errorf("header(%d) exists", header.Height)
 	}
@@ -195,23 +196,6 @@ func (chain *Chain) addTailHeader(header *Header) error {
 	if nextHeader.ParentHash != header.Hash() {
 		return fmt.Errorf("next header(%d) ParentHash != header(%d).Hash", header.Height+1, header.Height)
 	}
-	chain.headerChain[header.Height] = header
-
-	return nil
-}
-
-func (chain *Chain) AddRawHeader(header *Header) error {
-	chain.mutexChain.Lock()
-	defer chain.mutexChain.Unlock()
-
-	return chain.addRawHeader(header)
-}
-
-func (chain *Chain) addRawHeader(header *Header) error {
-	if _, ok := chain.headerChain[header.Height]; ok {
-		return fmt.Errorf("rawHeader(%d) exists", header.Height)
-	}
-
 	chain.headerChain[header.Height] = header
 
 	return nil
@@ -251,26 +235,75 @@ func (chain *Chain) addBlock(header *Header, fc *FinalCertificate) error {
 	return nil
 }
 
+func (chain *Chain) addStampingCertificateWithHeader(header *Header, sc *StampingCertificate) error {
+	_, ok := chain.headerChain[sc.Height]
+	if ok {
+		return fmt.Errorf("header(%d) exists", sc.Height)
+	}
+
+	if err := chain.verifyStampingCertificate(header, sc); err != nil {
+		return err
+	}
+
+	chain.headerChain[header.Height] = header
+	chain.scChain[sc.Height] = sc
+	chain.currentHeight = header.Height // TODO: check currentHeight < height
+
+	chain.updateStampingCertificate(sc.Height)
+	return nil
+}
+
+func (chain *Chain) verifyStampingCertificate(header *Header, sc *StampingCertificate) error {
+	if _, ok := chain.scChain[sc.Height]; ok {
+		return fmt.Errorf("stampingCertificate(%d) exists", sc.Height)
+	}
+
+	proofHeader, ok := chain.headerChain[sc.Height-defaultConfig.B]
+	if !ok {
+		return fmt.Errorf("proof header(%d) not exists", sc.Height-defaultConfig.B)
+	}
+
+	if !sc.Verify(header, proofHeader) {
+		return fmt.Errorf("sc(%d) invalid", sc.Height)
+	}
+
+	return nil
+}
+
 func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
-	if sc.Height <= chain.scStatus.Candidate {
-		return fmt.Errorf("sc(%d) lower than Candidate(%d)", sc.Height, chain.scStatus.Candidate)
+	header, ok := chain.headerChain[sc.Height]
+	if !ok {
+		return fmt.Errorf("header(%d) not exists", sc.Height)
+	}
+
+	if err := chain.verifyStampingCertificate(header, sc); err != nil {
+		return err
 	}
 
 	chain.scChain[sc.Height] = sc
 
+	chain.updateStampingCertificate(sc.Height)
+	return nil
+}
+
+func (chain *Chain) updateStampingCertificate(height uint64) {
+	if height <= chain.scStatus.Candidate {
+		return
+	}
+
 	// delete fc
 	// max(N-B, C+1, B+1)
-	start := MaxUint64(sc.Height-defaultConfig.B+1, chain.scStatus.Candidate+1)
-	n := chain.deleteFC(start, sc.Height)
+	start := MaxUint64(height-defaultConfig.B+1, chain.scStatus.Candidate+1)
+	n := chain.deleteFC(start, height)
 	_ = n
-	fmt.Printf("%d deleteFC range=[%d, %d] deleted=%d\n", sc.Height, start, sc.Height, n)
+	fmt.Printf("%d deleteFC range=[%d, %d] deleted=%d\n", height, start, height, n)
 
-	if sc.Height-chain.scStatus.Proof <= defaultConfig.B {
-		chain.scStatus.Candidate = sc.Height
+	if height-chain.scStatus.Proof <= defaultConfig.B {
+		chain.scStatus.Candidate = height
 	} else {
 		chain.freeze(chain.scStatus.Proof)
 		chain.scStatus.Proof = chain.scStatus.Candidate
-		chain.scStatus.Candidate = sc.Height
+		chain.scStatus.Candidate = height
 	}
 
 	// trim( max(QB - B, Fz), min((C-B), QB)) // 开区间
@@ -279,7 +312,7 @@ func (chain *Chain) addStampingCertificate(sc *StampingCertificate) error {
 	n = chain.trim(start, end)
 	fmt.Printf("trim range=[%d, %d] deleted=%d\n", start, end, n)
 
-	return nil
+	return
 }
 
 //Keeping proof-objects up-to-date
@@ -334,7 +367,7 @@ func (chain *Chain) Print() {
 	realLength := uint64(0)
 	prev := uint64(0)
 	line := 0
-	for height := uint64(1); height <= chain.scStatus.Candidate; height++ {
+	for height := uint64(1); height <= chain.currentHeight; height++ {
 		header := chain.headerChain[height]
 		fc := chain.fcChain[height]
 		sc := chain.scChain[height]
@@ -414,14 +447,11 @@ func (chain *Chain) Sync(other *Chain) error {
 
 	proofHeight := defaultConfig.B
 	for height := proofHeight + defaultConfig.B; height <= other.scStatus.Candidate; {
-		sc := other.StampingCertificate(height)
+		fmt.Printf("process h(%d), p(%d), ch:%d\n", height, proofHeight, other.currentHeight)
+		scHeader, sc := other.HeaderAndStampingCertificate(height)
 		if sc != nil {
-			if scHeader := other.Header(height); scHeader == nil {
-				return fmt.Errorf("other chain sc(%d) cannt find header(%d)", sc.Height, height)
-			} else {
-				if err := chain.addRawHeader(scHeader); err != nil {
-					return err
-				}
+			if scHeader == nil {
+				panic(fmt.Errorf("other chain sc(%d) cannt find header(%d)", sc.Height, height))
 			}
 			for h := proofHeight - 1; h >= height-defaultConfig.B && h > proofHeight-defaultConfig.B; h-- {
 				if h <= proofHeight-defaultConfig.B {
@@ -434,13 +464,13 @@ func (chain *Chain) Sync(other *Chain) error {
 				if header == nil {
 					return fmt.Errorf("rollback Header(%d) not exists", h)
 				}
-				if err := chain.addTailHeader(other.Header(h)); err != nil {
+				if err := chain.addHeader(header); err != nil {
 					return err
 				}
 				// fetch state
 			}
 
-			if err := chain.addStampingCertificate(sc); err != nil {
+			if err := chain.addStampingCertificateWithHeader(scHeader, sc); err != nil {
 				// TODO: 并发处理还需要更一步处理
 				return err
 			}
@@ -461,7 +491,7 @@ func (chain *Chain) Sync(other *Chain) error {
 					return err
 				}
 
-				if sc := other.StampingCertificate(h + defaultConfig.B); sc != nil {
+				if _, sc := other.HeaderAndStampingCertificate(h + defaultConfig.B); sc != nil {
 					proofHeight = h
 					height = proofHeight + defaultConfig.B
 					break
@@ -471,5 +501,44 @@ func (chain *Chain) Sync(other *Chain) error {
 		}
 	}
 
+	// fz --> proof
+	for height := other.scStatus.Proof - 1; height > other.scStatus.Fz && height >= other.scStatus.Candidate-defaultConfig.B; height-- {
+		//fmt.Printf("fz->proof, h(%d)\n", height)
+		header := other.Header(height)
+		if err := chain.addHeader(header); err != nil {
+			return err
+		}
+	}
+
+	// proof --> C
+	cHeader, cSc := other.HeaderAndStampingCertificate(other.scStatus.Candidate)
+	if cHeader == nil || cSc == nil {
+		return fmt.Errorf("cannt find header and sc, height:%d", other.scStatus.Candidate)
+	}
+	if err := chain.addStampingCertificateWithHeader(cHeader, cSc); err != nil {
+		return err
+	}
+	for height := other.scStatus.Candidate - 1; height > other.scStatus.Proof; height-- {
+		//fmt.Printf("C-->Proof, h(%d)\n", height)
+		header := other.Header(height)
+		if err := chain.addHeader(header); err != nil {
+			return err
+		}
+	}
+
+	// dense tail
+	for height := other.scStatus.Candidate + 1; height <= other.currentHeight; height++ {
+		header := other.Header(height)
+		if header == nil {
+			return fmt.Errorf("dense tail header(%d) not exists", height)
+		}
+		fc := other.FinalCertificate(height)
+		if fc == nil {
+			return fmt.Errorf("dense tail fc(%d) not exists", height)
+		}
+		if err := chain.addBlock(header, fc); err != nil {
+			return err
+		}
+	}
 	return nil
 }

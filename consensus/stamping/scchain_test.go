@@ -64,6 +64,7 @@ func buildChain(t *testing.T, maxHeight uint64) *Chain {
 	stampingCh := makeStampingGenerator(defaultConfig, chain, eventCh)
 
 	for s := range stampingCh {
+		fmt.Printf("add height %d\n", s.Height)
 		err := chain.AddStampingCertificate(s)
 		if err != nil {
 			t.Errorf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
@@ -81,7 +82,9 @@ func TestNewChain(t *testing.T) {
 }
 
 func TestSyncChain(t *testing.T) {
-	const maxHeight = 1000
+	rand.Seed(2)
+
+	const maxHeight = 102
 	other := buildChain(t, maxHeight)
 	other.Print()
 
