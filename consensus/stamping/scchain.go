@@ -10,7 +10,7 @@ import (
 
 var (
 	defaultConfig = &Config{
-		B:           37,
+		B:           20,
 		Probability: 55,
 	}
 
@@ -253,7 +253,7 @@ func (chain *Chain) addBlock(header *Header, fc *FinalCertificate) error {
 func (chain *Chain) addStampingCertificateWithHeader(header *Header, sc *StampingCertificate) error {
 	_, ok := chain.headerChain[sc.Height]
 	if ok {
-		return fmt.Errorf("header(%d) exists", sc.Height)
+		return fmt.Errorf("scheader(%d) exists", sc.Height)
 	}
 
 	if err := chain.verifyStampingCertificate(header, sc); err != nil {
@@ -461,8 +461,8 @@ func (chain *Chain) Sync(other *Chain) error {
 	}
 
 	proofHeight := defaultConfig.B
-	for height := proofHeight + defaultConfig.B; height < other.scStatus.Candidate; {
-		//fmt.Printf("process h(%d), p(%d), ch:%d\n", height, proofHeight, other.currentHeight)
+	for height := proofHeight + defaultConfig.B; ; {
+		//fmt.Printf("process h(%d), proofHeight(%d)\n", height, proofHeight)
 		scHeader, sc := other.HeaderAndStampingCertificate(height)
 		if sc != nil {
 			if scHeader == nil {
@@ -479,26 +479,34 @@ func (chain *Chain) Sync(other *Chain) error {
 				if header == nil {
 					return fmt.Errorf("rollback Header(%d) not exists", h)
 				}
+				//fmt.Printf("chain.addHeader(%d)\n", header.Height)
 				if err := chain.addHeader(header); err != nil {
 					return err
 				}
-				// fetch state
 			}
 
+			//fmt.Printf("chain.addsc(%d)\n", scHeader.Height)
 			if err := chain.addStampingCertificateWithHeader(scHeader, sc); err != nil {
 				// TODO: 并发处理还需要更一步处理
 				return err
 			}
 
 			proofHeight = height
+			if height == other.scStatus.Fz {
+				break
+			}
+
 			height += defaultConfig.B
+			if height > other.scStatus.Fz {
+				height = other.scStatus.Fz
+			}
 		} else {
 			height -= 1
 			if height > proofHeight {
 				continue
 			}
 
-			for h := proofHeight + uint64(1); h <= other.scStatus.Fz; h++ {
+			for h := proofHeight + uint64(1); ; h++ {
 				header := other.Header(h)
 				fc := other.FinalCertificate(h)
 
@@ -506,26 +514,77 @@ func (chain *Chain) Sync(other *Chain) error {
 					return err
 				}
 
+				//fmt.Printf("chain.addBlock(%d)\n", header.Height)
 				if _, sc := other.HeaderAndStampingCertificate(h + defaultConfig.B); sc != nil {
 					proofHeight = h
 					height = proofHeight + defaultConfig.B
 					break
 				}
-			}
 
+				if h+defaultConfig.B >= other.scStatus.Fz {
+					return fmt.Errorf("other.SC(Fz) not exists, h:%d, other.Fz:%d", h, other.scStatus.Fz)
+				}
+			}
 		}
 	}
-
-	// fz --> proof
-	for height := other.scStatus.Proof - 1; height > other.scStatus.Fz && height >= other.scStatus.Candidate-defaultConfig.B; height-- {
-		//fmt.Printf("fz->proof, h(%d)\n", height)
-		header := other.Header(height)
+	// fz tail
+	for h := other.scStatus.Fz - 1; h >= other.scStatus.Proof-defaultConfig.B; h-- {
+		header := other.Header(h)
+		if header == nil {
+			return fmt.Errorf("rollback Header(%d) not exists", h)
+		}
+		//fmt.Printf("fz tail chain.addHeader(%d)\n", header.Height)
 		if err := chain.addHeader(header); err != nil {
 			return err
 		}
 	}
 
-	// proof --> C
+	// fz <-- proof
+	for height := other.scStatus.Fz + 1; height <= other.scStatus.Proof-defaultConfig.B; height++ {
+		header := other.Header(height)
+		if header == nil {
+			return fmt.Errorf("fz <-- proof header(%d) not exists", height)
+		}
+		fc := other.FinalCertificate(height)
+		if fc == nil {
+			return fmt.Errorf("dense tail fc(%d) not exists", height)
+		}
+		if err := chain.addBlock(header, fc); err != nil {
+			return err
+		}
+	}
+	pHeader, pSc := other.HeaderAndStampingCertificate(other.scStatus.Proof)
+	if pHeader == nil || pSc == nil {
+		return fmt.Errorf("cannt find proof header and sc, height:%d", other.scStatus.Proof)
+	}
+	if err := chain.addStampingCertificateWithHeader(pHeader, pSc); err != nil {
+		return err
+	}
+	for height := other.scStatus.Proof - 1; height >= other.scStatus.Candidate-defaultConfig.B && height > other.scStatus.Proof-defaultConfig.B && height > other.scStatus.Fz; height-- {
+		//fmt.Printf("fz->proof, h(%d), p(%d)\n", height, other.scStatus.Proof)
+		header := other.Header(height)
+		if header == nil {
+			return fmt.Errorf("header is nil, height:%d", height)
+		}
+		if err := chain.addHeader(header); err != nil {
+			return err
+		}
+	}
+
+	// proof <-- C
+	for height := other.scStatus.Proof + 1; height <= other.scStatus.Candidate-defaultConfig.B; height++ {
+		header := other.Header(height)
+		if header == nil {
+			return fmt.Errorf("proof <-- C header(%d) not exists", height)
+		}
+		fc := other.FinalCertificate(height)
+		if fc == nil {
+			return fmt.Errorf("dense tail fc(%d) not exists", height)
+		}
+		if err := chain.addBlock(header, fc); err != nil {
+			return err
+		}
+	}
 	cHeader, cSc := other.HeaderAndStampingCertificate(other.scStatus.Candidate)
 	if cHeader == nil || cSc == nil {
 		return fmt.Errorf("cannt find header and sc, height:%d", other.scStatus.Candidate)
@@ -533,7 +592,7 @@ func (chain *Chain) Sync(other *Chain) error {
 	if err := chain.addStampingCertificateWithHeader(cHeader, cSc); err != nil {
 		return err
 	}
-	for height := other.scStatus.Candidate - 1; height > other.scStatus.Proof; height-- {
+	for height := other.scStatus.Candidate - 1; height > other.scStatus.Candidate-defaultConfig.B && height > other.scStatus.Proof; height-- {
 		//fmt.Printf("C-->Proof, h(%d)\n", height)
 		header := other.Header(height)
 		if err := chain.addHeader(header); err != nil {
@@ -576,13 +635,11 @@ func (chain *Chain) Equal(other *Chain) (bool, error) {
 			return false, fmt.Errorf("fc not equal, height:%d, this:%v, other:%v", height, fc, ofc)
 		}
 
-		/*
-			sc := chain.stampingCertificate(height)
-			osc := other.StampingCertificate(height)
-			if !EqualStampingCertificate(sc, osc) {
-				return false, fmt.Errorf("sc not equal, height:%d, this:%v, other:%v", height, sc, osc)
-			}
-		*/
+		sc := chain.stampingCertificate(height)
+		osc := other.StampingCertificate(height)
+		if !EqualStampingCertificate(sc, osc) {
+			return false, fmt.Errorf("sc not equal, height:%d, this:%v, other:%v", height, sc, osc)
+		}
 	}
 
 	for height := chain.scStatus.Fz + 1; height < chain.currentHeight; height++ {
