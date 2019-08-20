@@ -75,6 +75,31 @@ func buildChain(t *testing.T, maxHeight uint64) *Chain {
 	return chain
 }
 
+func ensureSyncOk(t *testing.T, a *Chain) {
+	b := NewChain()
+	if err := b.Sync(a); err != nil {
+		t.Fatalf("sync error, err:%s", err)
+	}
+
+	c := NewChain()
+	if err := c.Sync(b); err != nil {
+		t.Fatalf("sync error, err:%s", err)
+	}
+
+	if equal, err := c.Equal(b); !equal {
+		b.Print()
+		fmt.Println("---------------------------------after-----------------------------------------------------")
+		c.Print()
+		t.Fatal(err.Error())
+	}
+
+	a.Print()
+	fmt.Println("---------------------------------after b-----------------------------------------------------")
+	b.Print()
+	fmt.Println("---------------------------------after c-----------------------------------------------------")
+	c.Print()
+}
+
 func TestNewChain(t *testing.T) {
 	const maxHeight = 100000
 	chain := buildChain(t, maxHeight)
@@ -85,16 +110,9 @@ func TestSyncChain(t *testing.T) {
 	rand.Seed(2)
 
 	const maxHeight = 102
-	other := buildChain(t, maxHeight)
-	other.Print()
+	a := buildChain(t, maxHeight)
 
-	fmt.Println("---------------------------------after sync-----------------------------------------------------")
-	chain := NewChain()
-	if err := chain.Sync(other); err != nil {
-		t.Errorf("sync error, err:%s", err)
-		//return
-	}
-	chain.Print()
+	ensureSyncOk(t, a)
 }
 
 func TestAutoSyncChain(t *testing.T) {
@@ -103,30 +121,14 @@ func TestAutoSyncChain(t *testing.T) {
 
 	for i := 0; i < count; i++ {
 		const maxHeight = 10105
-		other := buildChain(t, maxHeight)
+		a := buildChain(t, maxHeight)
 
-		chain := NewChain()
-		if err := chain.Sync(other); err != nil {
-			other.Print()
-			fmt.Println("---------------------------------after-----------------------------------------------------")
-			chain.Print()
-			t.Fatalf("sync error, err:%s", err)
-		}
-
-		if equal, err := chain.Equal(other); !equal {
-			other.Print()
-			fmt.Println("---------------------------------after-----------------------------------------------------")
-			chain.Print()
-			t.Fatal(err.Error())
-		}
+		ensureSyncOk(t, a)
 	}
 }
 
-//
-func TestSyncWhenFPNearAndPCFurtherThanB(t *testing.T) {
-	const maxHeight = 130
-
-	defaultConfig.B = 20
+func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *Chain {
+	defaultConfig.B = B
 
 	parent := genesisHeader
 	chain := NewChain()
@@ -141,68 +143,78 @@ func TestSyncWhenFPNearAndPCFurtherThanB(t *testing.T) {
 		}
 	}
 
-	var height uint64 = 0
+	// 20-->40->41-->60->61------>130
+	for _, height := range heights {
+		proofHeader := chain.Header(height - defaultConfig.B)
+		s := NewStampingCertificate(height, proofHeader)
+		err := chain.AddStampingCertificate(s)
+		if err != nil {
+			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+		}
+	}
+
+	return chain
+}
+
+func TestSyncWhenEmptyChain(t *testing.T) {
+	const maxHeight = 20
+	const B = 20
+
+	chain := NewChain()
+
+	ensureSyncOk(t, chain)
+}
+
+func TestSync0ToB(t *testing.T) {
+	const maxHeight = 20
+	const B = 20
+
+	// 20
+	chain := buildSpecialChain(t, B, maxHeight, nil)
+
+	ensureSyncOk(t, chain)
+}
+
+func TestSyncWhenFPNearAndPCFurtherThanB(t *testing.T) {
+	const maxHeight = 130
+	const B = 20
 
 	// 20-->40->41-->60->61------>130
-	// 40
-	{
-		height = 40
-		proofHeader := chain.Header(height - defaultConfig.B)
-		s := NewStampingCertificate(height, proofHeader)
-		err := chain.AddStampingCertificate(s)
-		if err != nil {
-			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
-		}
-	}
-	// 41
-	{
-		height = 41
-		proofHeader := chain.Header(height - defaultConfig.B)
-		s := NewStampingCertificate(height, proofHeader)
-		err := chain.AddStampingCertificate(s)
-		if err != nil {
-			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
-		}
-	}
+	heights := []uint64{40, 41, 60, 61, 130}
+	chain := buildSpecialChain(t, B, maxHeight, heights)
 
-	// 60
-	{
-		height = 60
-		proofHeader := chain.Header(height - defaultConfig.B)
-		s := NewStampingCertificate(height, proofHeader)
-		err := chain.AddStampingCertificate(s)
-		if err != nil {
-			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
-		}
-	}
-	// 61
-	{
-		height = 61
-		proofHeader := chain.Header(height - defaultConfig.B)
-		s := NewStampingCertificate(height, proofHeader)
-		err := chain.AddStampingCertificate(s)
-		if err != nil {
-			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
-		}
-	}
+	ensureSyncOk(t, chain)
+}
 
-	// 130
-	{
-		height = 130
-		proofHeader := chain.Header(height - defaultConfig.B)
-		s := NewStampingCertificate(height, proofHeader)
-		err := chain.AddStampingCertificate(s)
-		if err != nil {
-			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
-		}
-	}
+func TestSyncWhenFPFurtherThanBAndPCFurtherThanB(t *testing.T) {
+	const maxHeight = 170
+	const B = 20
 
-	// sync
-	other := NewChain()
-	if err := other.Sync(chain); err != nil {
-		chain.Print()
-		fmt.Println("---------------------------------after-----------------------------------------------------")
-		other.Print()
-		t.Fatalf("sync error, err:%s", err)
-	}
+	// 20-->40->41-->60->61------>130------>165
+	heights := []uint64{40, 41, 60, 61, 130, 165}
+	chain := buildSpecialChain(t, B, maxHeight, heights)
+
+	ensureSyncOk(t, chain)
+}
+
+func TestSyncWhenFPFurtherThanBAndPCNear(t *testing.T) {
+	const maxHeight = 170
+	const B = 20
+
+	// 20-->40->41-->60->61------>130->131->132-->150------>165
+	heights := []uint64{40, 41, 60, 61, 130, 165}
+	chain := buildSpecialChain(t, B, maxHeight, heights)
+
+	ensureSyncOk(t, chain)
+}
+
+func TestSyncWhenFPEqualBAndPCEqualBAdd1(t *testing.T) {
+	const maxHeight = 200
+	const B = 20
+
+	// 20-->40->41-->60->61------>130->131->132-->150------>165->170->171---->190->191
+	heights := []uint64{40, 41, 60, 61, 130, 131, 132, 150, 165, 170, 171, 190, 191}
+	chain := buildSpecialChain(t, B, maxHeight, heights)
+
+	ensureSyncOk(t, chain)
 }
