@@ -202,8 +202,8 @@ func TestSyncWhenFPNearAndPCFurtherThanB(t *testing.T) {
 	const B = 20
 
 	// 20-->40->41-->60->61------>130
-	heights := []uint64{40, 41, 60, 61, 130}
-	chain := buildSpecialChain(t, B, maxHeight, heights)
+	scHeights := []uint64{40, 41, 60, 61, 130}
+	chain := buildSpecialChain(t, B, maxHeight, scHeights)
 
 	ensureSyncOk(t, chain)
 }
@@ -213,8 +213,8 @@ func TestSyncWhenFPFurtherThanBAndPCFurtherThanB(t *testing.T) {
 	const B = 20
 
 	// 20-->40->41-->60->61------>130------>165
-	heights := []uint64{40, 41, 60, 61, 130, 165}
-	chain := buildSpecialChain(t, B, maxHeight, heights)
+	scHeights := []uint64{40, 41, 60, 61, 130, 165}
+	chain := buildSpecialChain(t, B, maxHeight, scHeights)
 
 	ensureSyncOk(t, chain)
 }
@@ -224,8 +224,8 @@ func TestSyncWhenFPFurtherThanBAndPCNear(t *testing.T) {
 	const B = 20
 
 	// 20-->40->41-->60->61------>130->131->132-->150------>165
-	heights := []uint64{40, 41, 60, 61, 130, 165}
-	chain := buildSpecialChain(t, B, maxHeight, heights)
+	scHeights := []uint64{40, 41, 60, 61, 130, 165}
+	chain := buildSpecialChain(t, B, maxHeight, scHeights)
 
 	ensureSyncOk(t, chain)
 }
@@ -235,8 +235,8 @@ func TestSyncWhenFPEqualBAndPCEqualBAdd1(t *testing.T) {
 	const B = 20
 
 	// 20-->40->41-->60->61------>130->131->132-->150------>165->170->171---->190->191
-	heights := []uint64{40, 41, 60, 61, 130, 131, 132, 150, 165, 170, 171, 190, 191}
-	chain := buildSpecialChain(t, B, maxHeight, heights)
+	scHeights := []uint64{40, 41, 60, 61, 130, 131, 132, 150, 165, 170, 171, 190, 191}
+	chain := buildSpecialChain(t, B, maxHeight, scHeights)
 
 	ensureSyncOk(t, chain)
 }
