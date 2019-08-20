@@ -175,6 +175,28 @@ func TestSync0ToB(t *testing.T) {
 	ensureSyncOk(t, chain)
 }
 
+func TestSync0ToBnNLessThanB(t *testing.T) {
+	const maxHeight = 39
+	const B = 20
+
+	// 20->21->22->23->30->33->39
+	scHeights := []uint64{21, 22, 23, 30, 33, 39}
+	chain := buildSpecialChain(t, B, maxHeight, scHeights)
+
+	ensureSyncOk(t, chain)
+}
+
+func TestSync0ToBnFzEqualB(t *testing.T) {
+	const maxHeight = 43
+	const B = 20
+
+	// 20->21->22->23->30->33->39
+	scHeights := []uint64{21, 22, 23, 30, 33, 39, 40, 41, 42}
+	chain := buildSpecialChain(t, B, maxHeight, scHeights)
+
+	ensureSyncOk(t, chain)
+}
+
 func TestSyncWhenFPNearAndPCFurtherThanB(t *testing.T) {
 	const maxHeight = 130
 	const B = 20
