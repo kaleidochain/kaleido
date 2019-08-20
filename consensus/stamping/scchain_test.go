@@ -176,24 +176,66 @@ func TestSync0ToB(t *testing.T) {
 }
 
 func TestSync0ToBnNLessThanB(t *testing.T) {
-	const maxHeight = 39
+	maxHeight := uint64(40)
 	const B = 20
 
-	// 20->21->22->23->30->33->39
-	scHeights := []uint64{21, 22, 23, 30, 33, 39}
+	// 20->21->22->23->30->33->40
+	scHeights := []uint64{21, 22, 23, 30, 33, 40}
 	chain := buildSpecialChain(t, B, maxHeight, scHeights)
+	expectedSCStatus := SCStatus{
+		Candidate: 40,
+		Proof:     20,
+		Fz:        20,
+	}
+	if chain.scStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	}
+	ensureSyncOk(t, chain)
 
+	maxHeight = 41
+	// 20->21->22->23->30->33->40->41
+	scHeights = []uint64{21, 22, 23, 30, 33, 40, 41}
+	chain = buildSpecialChain(t, B, maxHeight, scHeights)
+	expectedSCStatus = SCStatus{
+		Candidate: 41,
+		Proof:     40,
+		Fz:        20,
+	}
+	if chain.scStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	}
 	ensureSyncOk(t, chain)
 }
 
 func TestSync0ToBnFzEqualB(t *testing.T) {
-	const maxHeight = 43
 	const B = 20
 
-	// 20->21->22->23->30->33->39
-	scHeights := []uint64{21, 22, 23, 30, 33, 39, 40, 41, 42}
+	maxHeight := uint64(60)
+	// 20->21->22->23->30->33->39->40->41->42--->60
+	scHeights := []uint64{21, 22, 23, 30, 33, 39, 40, 41, 42, 60}
 	chain := buildSpecialChain(t, B, maxHeight, scHeights)
+	expectedSCStatus := SCStatus{
+		Candidate: 60,
+		Proof:     40,
+		Fz:        20,
+	}
+	if chain.scStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	}
+	ensureSyncOk(t, chain)
 
+	maxHeight = uint64(61)
+	// 20->21->22->23->30->33->39->40->41->42--->60->61
+	scHeights = []uint64{21, 22, 23, 30, 33, 39, 40, 41, 42, 60, 61}
+	chain = buildSpecialChain(t, B, maxHeight, scHeights)
+	expectedSCStatus = SCStatus{
+		Candidate: 61,
+		Proof:     60,
+		Fz:        40,
+	}
+	if chain.scStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	}
 	ensureSyncOk(t, chain)
 }
 
