@@ -453,7 +453,13 @@ func (chain *Chain) Sync(other *Chain) error {
 
 	for height := uint64(1); height <= defaultConfig.B; height++ {
 		header := other.Header(height)
+		if header == nil {
+			return fmt.Errorf("cannt find header(%d)", height)
+		}
 		fc := other.FinalCertificate(height)
+		if fc == nil {
+			return fmt.Errorf("cannt find fc(%d)", height)
+		}
 
 		if err := chain.addBlock(header, fc); err != nil {
 			return err
