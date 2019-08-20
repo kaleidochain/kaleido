@@ -93,17 +93,18 @@ func ensureSyncOk(t *testing.T, a *Chain) {
 		t.Fatal(err.Error())
 	}
 
-	a.Print()
-	fmt.Println("---------------------------------after b-----------------------------------------------------")
-	b.Print()
-	fmt.Println("---------------------------------after c-----------------------------------------------------")
-	c.Print()
+	/*
+		a.Print()
+		fmt.Println("---------------------------------after b-----------------------------------------------------")
+		b.Print()
+		fmt.Println("---------------------------------after c-----------------------------------------------------")
+		c.Print()
+	*/
 }
 
 func TestNewChain(t *testing.T) {
 	const maxHeight = 100000
-	chain := buildChain(t, maxHeight)
-	chain.Print()
+	buildChain(t, maxHeight)
 }
 
 func TestSyncChain(t *testing.T) {
@@ -143,7 +144,6 @@ func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *Cha
 		}
 	}
 
-	// 20-->40->41-->60->61------>130
 	for _, height := range heights {
 		proofHeader := chain.Header(height - defaultConfig.B)
 		s := NewStampingCertificate(height, proofHeader)

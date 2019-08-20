@@ -467,7 +467,7 @@ func (chain *Chain) Sync(other *Chain) error {
 	}
 
 	proofHeight := defaultConfig.B
-	for height := proofHeight + defaultConfig.B; ; {
+	for height := proofHeight + defaultConfig.B; other.scStatus.Fz > defaultConfig.B; {
 		//fmt.Printf("process h(%d), proofHeight(%d)\n", height, proofHeight)
 		scHeader, sc := other.HeaderAndStampingCertificate(height)
 		if sc != nil {
@@ -534,7 +534,7 @@ func (chain *Chain) Sync(other *Chain) error {
 		}
 	}
 	// fz tail
-	for h := other.scStatus.Fz - 1; h >= other.scStatus.Proof-defaultConfig.B; h-- {
+	for h := other.scStatus.Fz - 1; h >= other.scStatus.Proof-defaultConfig.B && other.scStatus.Fz > defaultConfig.B; h-- {
 		header := other.Header(h)
 		if header == nil {
 			return fmt.Errorf("rollback Header(%d) not exists", h)
@@ -559,12 +559,14 @@ func (chain *Chain) Sync(other *Chain) error {
 			return err
 		}
 	}
-	pHeader, pSc := other.HeaderAndStampingCertificate(other.scStatus.Proof)
-	if pHeader == nil || pSc == nil {
-		return fmt.Errorf("cannt find proof header and sc, height:%d", other.scStatus.Proof)
-	}
-	if err := chain.addStampingCertificateWithHeader(pHeader, pSc); err != nil {
-		return err
+	if other.scStatus.Proof > defaultConfig.B {
+		pHeader, pSc := other.HeaderAndStampingCertificate(other.scStatus.Proof)
+		if pHeader == nil || pSc == nil {
+			return fmt.Errorf("cannt find proof header and sc, height:%d", other.scStatus.Proof)
+		}
+		if err := chain.addStampingCertificateWithHeader(pHeader, pSc); err != nil {
+			return err
+		}
 	}
 	for height := other.scStatus.Proof - 1; height >= other.scStatus.Candidate-defaultConfig.B && height > other.scStatus.Proof-defaultConfig.B && height > other.scStatus.Fz; height-- {
 		//fmt.Printf("fz->proof, h(%d), p(%d)\n", height, other.scStatus.Proof)
@@ -591,12 +593,14 @@ func (chain *Chain) Sync(other *Chain) error {
 			return err
 		}
 	}
-	cHeader, cSc := other.HeaderAndStampingCertificate(other.scStatus.Candidate)
-	if cHeader == nil || cSc == nil {
-		return fmt.Errorf("cannt find header and sc, height:%d", other.scStatus.Candidate)
-	}
-	if err := chain.addStampingCertificateWithHeader(cHeader, cSc); err != nil {
-		return err
+	if other.scStatus.Candidate > defaultConfig.B {
+		cHeader, cSc := other.HeaderAndStampingCertificate(other.scStatus.Candidate)
+		if cHeader == nil || cSc == nil {
+			return fmt.Errorf("cannt find header and sc, height:%d", other.scStatus.Candidate)
+		}
+		if err := chain.addStampingCertificateWithHeader(cHeader, cSc); err != nil {
+			return err
+		}
 	}
 	for height := other.scStatus.Candidate - 1; height > other.scStatus.Candidate-defaultConfig.B && height > other.scStatus.Proof; height-- {
 		//fmt.Printf("C-->Proof, h(%d)\n", height)
