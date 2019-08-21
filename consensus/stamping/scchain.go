@@ -357,6 +357,12 @@ func (chain *Chain) deleteFC(start, end uint64) int {
 }
 
 func (chain *Chain) freeze(proof uint64) {
+	start := MaxUint64(chain.scStatus.Fz+1, chain.scStatus.Proof-defaultConfig.B+1)
+	end := chain.scStatus.Proof
+	for height := start; height < end; height++ {
+		delete(chain.scChain, height)
+	}
+
 	chain.scStatus.Fz = proof
 }
 
