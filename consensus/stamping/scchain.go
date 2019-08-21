@@ -543,7 +543,7 @@ type breadcrumb struct {
 	forwardFinalCertificate []*FinalCertificate
 }
 
-func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegin, nextEnd uint64, err error) {
+func (chain *Chain) syncNextFrozenBreadcrumb(peer *Chain, begin, end uint64) (nextBegin, nextEnd uint64, err error) {
 	breadcrumb, err := peer.getNextBreadcrumb(begin, end)
 	if err != nil {
 		return
@@ -594,7 +594,7 @@ func (chain *Chain) Sync(peer *Chain) error {
 	}
 
 	for begin, end := chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B; chain.currentHeight < peer.scStatus.Fz && chain.currentHeight < peer.currentHeight; {
-		begin, end, err = chain.syncNextBreadcrumb(peer, begin, end)
+		begin, end, err = chain.syncNextFrozenBreadcrumb(peer, begin, end)
 		if err != nil {
 			return fmt.Errorf("synchronize frozen breadcrumb in range[%d,%d] failed: %v", chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B, err)
 		}
