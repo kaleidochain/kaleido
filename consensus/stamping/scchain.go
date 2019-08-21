@@ -455,6 +455,17 @@ func (chain *Chain) Print() {
 	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%\n", chain.currentHeight, realLength, float64(realLength*10000/chain.currentHeight)/100)
 }
 
+func (chain *Chain) HeaderAndFinalCertificate(height uint64) (*Header, *FinalCertificate) {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	return chain.header(height), chain.finalCertificate(height)
+}
+
+func (chain *Chain) syncRangeByHeaderAndFinalCertificate(start, end uint64) error {
+
+}
+
 func (chain *Chain) Sync(other *Chain) error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
