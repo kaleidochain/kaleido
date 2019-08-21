@@ -312,9 +312,7 @@ func (chain *Chain) updateStampingCertificate(height uint64) {
 	// delete fc
 	// max(N-B, C+1, B+1)
 	start := MaxUint64(height-defaultConfig.B+1, chain.scStatus.Candidate+1)
-	n := chain.deleteFC(start, height)
-	_ = n
-	//fmt.Printf("%d deleteFC range=[%d, %d] deleted=%d\n", height, start, height, n)
+	chain.deleteFC(start, height)
 
 	if height-chain.scStatus.Proof <= defaultConfig.B {
 		chain.scStatus.Candidate = height
@@ -327,8 +325,8 @@ func (chain *Chain) updateStampingCertificate(height uint64) {
 	// trim( max(QB - B, Fz), min((C-B), QB)) // 开区间
 	start = MaxUint64(chain.scStatus.Proof-defaultConfig.B, chain.scStatus.Fz)
 	end := MinUint64(chain.scStatus.Candidate-defaultConfig.B, chain.scStatus.Proof)
-	n = chain.trim(start, end)
-	//fmt.Printf("trim range=[%d, %d] deleted=%d\n", start, end, n)
+	n := chain.trim(start, end)
+	fmt.Printf("trim range=[%d, %d] deleted=%d/%d\n", start, end, n, end-start-1)
 
 	return
 }
