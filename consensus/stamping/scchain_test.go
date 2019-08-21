@@ -70,14 +70,14 @@ func buildChainConcurrency(t *testing.T, config *Config, chain *Chain, begin, en
 
 func buildChainByRandom(t *testing.T, maxHeight uint64) *Chain {
 	chain := NewChain()
-	buildChainConcurrency(t, defaultConfig, chain, 1, maxHeight+1, randomStampingMaker(defaultConfig.Probability))
+	buildChainConcurrency(t, defaultConfig, chain, 1, maxHeight+1, randomStampingMaker(defaultConfig.FailureProbability))
 	return chain
 }
 
 func buildChainBySequence(t *testing.T, b uint64, maxHeight uint64, seq []uint64) *Chain {
 	config := &Config{
-		B:           b,
-		Probability: 0,
+		B:                  b,
+		FailureProbability: 0,
 	}
 	chain := NewChain()
 	buildChainConcurrency(t, config, chain, 1, maxHeight+1, sequenceStampingMaker(seq))
