@@ -468,7 +468,7 @@ func (chain *Chain) canSynchronize(other *Chain) bool {
 }
 
 func (chain *Chain) syncRangeByHeaderAndFinalCertificate(peer *Chain, start, end uint64) error {
-	for height := start; height <= end && height < peer.currentHeight; height++ {
+	for height := start; height <= end && height <= peer.currentHeight; height++ {
 		header := peer.Header(height)
 		if header == nil {
 			return fmt.Errorf("cannt find header(%d)", height)
