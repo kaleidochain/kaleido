@@ -62,13 +62,15 @@ func NewHeader(height uint64, parent *Header) *Header {
 
 type FinalCertificate struct {
 	Height     uint64
+	Hash       common.Hash
 	ParentSeed common.Hash
 	ParentRoot common.Hash
 }
 
-func NewFinalCertificate(height uint64, parent *Header) *FinalCertificate {
+func NewFinalCertificate(header, parent *Header) *FinalCertificate {
 	return &FinalCertificate{
-		Height:     height,
+		Height:     header.Height,
+		Hash:       header.Hash(),
 		ParentSeed: parent.Seed,
 		ParentRoot: parent.Root,
 	}
@@ -76,6 +78,7 @@ func NewFinalCertificate(height uint64, parent *Header) *FinalCertificate {
 
 func (fc *FinalCertificate) Verify(header, parent *Header) bool {
 	return fc.Height == header.Height &&
+		fc.Hash == header.Hash() &&
 		fc.Height == parent.Height+1 &&
 		fc.ParentSeed == parent.Seed &&
 		fc.ParentRoot == parent.Root

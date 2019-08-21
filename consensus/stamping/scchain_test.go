@@ -7,72 +7,105 @@ import (
 	"time"
 )
 
-type block struct {
-	header *Header
-	fc     *FinalCertificate
-}
-
 const (
 	newBlockEvent = 1
 )
 
-type event struct {
-	Height uint64
-	Type   uint
+type StampingMaker interface {
+	Make(height uint64, proofHeader *Header) *StampingCertificate
 }
 
-func blockGenerator(t *testing.T, chain *Chain, maxHeight uint64, eventCh chan<- event) {
-	parent := genesisHeader
-	for height := uint64(1); height <= maxHeight; height++ {
-		header := NewHeader(height, parent)
-		fc := NewFinalCertificate(height, parent)
-		parent = header
+type randomStampingMaker int
 
-		err := chain.AddBlock(header, fc)
-		if err != nil {
-			t.Errorf("AddBlock failed, height=%d, err=%v", header.Height, err)
-		}
-
-		eventCh <- event{Height: header.Height, Type: newBlockEvent}
+func (failureProbability randomStampingMaker) Make(height uint64, proofHeader *Header) *StampingCertificate {
+	if rand.Intn(100) >= int(failureProbability) {
+		return NewStampingCertificate(height, proofHeader)
 	}
-	close(eventCh)
+	return nil
 }
 
-func makeStampingGenerator(config *Config, chain *Chain, eventCh <-chan event) <-chan *StampingCertificate {
-	ch := make(chan *StampingCertificate)
+type sequenceStampingMaker []uint64
+
+func (sequence sequenceStampingMaker) Make(height uint64, proofHeader *Header) *StampingCertificate {
+	for _, h := range sequence {
+		if h == height {
+			return NewStampingCertificate(height, proofHeader)
+		}
+	}
+	return nil
+}
+
+func buildChainConcurrency(t *testing.T, config *Config, chain *Chain, begin, end uint64, maker StampingMaker) {
+	blockHeightCh := make(chan uint64, 1)
 	go func() {
-		for e := range eventCh {
-			if e.Height <= config.B {
-				continue
-			}
-
-			proofHeader := chain.Header(e.Height - config.B)
-			if rand.Intn(100) < config.Probability {
-				s := NewStampingCertificate(e.Height, proofHeader)
-				ch <- s
-			}
+		if begin == 0 {
+			begin = 1
 		}
-		close(ch)
+		prev := chain.Header(begin - 1)
+		for h := begin; h < end; h++ {
+			header := NewHeader(h, prev)
+			finalCertificate := NewFinalCertificate(header, prev)
+
+			err := chain.AddBlock(header, finalCertificate)
+			if err != nil {
+				t.Fatalf("AddBlock failed, height=%d, err=%v", h, err)
+			}
+
+			blockHeightCh <- h
+			prev = header
+		}
+		close(blockHeightCh)
 	}()
-	return ch
-}
 
-func buildChain(t *testing.T, maxHeight uint64) *Chain {
-	chain := NewChain()
+	for height := range blockHeightCh {
+		if height <= config.B {
+			continue
+		}
 
-	eventCh := make(chan event, 100)
-	go blockGenerator(t, chain, maxHeight, eventCh)
-	stampingCh := makeStampingGenerator(defaultConfig, chain, eventCh)
-
-	for s := range stampingCh {
-		err := chain.AddStampingCertificate(s)
-		if err != nil {
-			t.Errorf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
-			return nil
+		proofHeader := chain.Header(height - config.B)
+		if s := maker.Make(height, proofHeader); s != nil {
+			err := chain.AddStampingCertificate(s)
+			if err != nil {
+				t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+			}
 		}
 	}
+}
 
+func buildChainByRandom(t *testing.T, maxHeight uint64) *Chain {
+	chain := NewChain()
+	buildChainConcurrency(t, defaultConfig, chain, 1, maxHeight+1, randomStampingMaker(defaultConfig.Probability))
 	return chain
+}
+
+func buildChainBySequence(t *testing.T, b uint64, maxHeight uint64, seq []uint64) *Chain {
+	config := &Config{
+		B:           b,
+		Probability: 0,
+	}
+	chain := NewChain()
+	buildChainConcurrency(t, config, chain, 1, maxHeight+1, sequenceStampingMaker(seq))
+	return chain
+}
+
+func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *Chain {
+	return buildChainBySequence(t, B, maxHeight, heights)
+}
+
+func appendStampingCertificate(t *testing.T, B uint64, chain *Chain, heights []uint64) {
+	config := &Config{
+		B:           B,
+		Probability: 0,
+	}
+
+	for _, h := range heights {
+		proof := chain.Header(h - config.B)
+		stampingCertificate := NewStampingCertificate(h, proof)
+		err := chain.addStampingCertificate(stampingCertificate)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func ensureSyncOk(t *testing.T, a *Chain) {
@@ -102,16 +135,18 @@ func ensureSyncOk(t *testing.T, a *Chain) {
 	*/
 }
 
+//---------------------------------
+
 func TestNewChain(t *testing.T) {
 	const maxHeight = 100000
-	buildChain(t, maxHeight)
+	buildChainByRandom(t, maxHeight)
 }
 
 func TestSyncChain(t *testing.T) {
 	rand.Seed(2)
 
 	const maxHeight = 102
-	a := buildChain(t, maxHeight)
+	a := buildChainByRandom(t, maxHeight)
 
 	ensureSyncOk(t, a)
 }
@@ -122,38 +157,10 @@ func TestAutoSyncChain(t *testing.T) {
 
 	for i := 0; i < count; i++ {
 		const maxHeight = 10105
-		a := buildChain(t, maxHeight)
+		a := buildChainByRandom(t, maxHeight)
 
 		ensureSyncOk(t, a)
 	}
-}
-
-func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *Chain {
-	defaultConfig.B = B
-
-	parent := genesisHeader
-	chain := NewChain()
-	for height := uint64(1); height <= maxHeight; height++ {
-		header := NewHeader(height, parent)
-		fc := NewFinalCertificate(height, parent)
-		parent = header
-
-		err := chain.AddBlock(header, fc)
-		if err != nil {
-			t.Fatalf("AddBlock failed, height=%d, err=%v", header.Height, err)
-		}
-	}
-
-	for _, height := range heights {
-		proofHeader := chain.Header(height - defaultConfig.B)
-		s := NewStampingCertificate(height, proofHeader)
-		err := chain.AddStampingCertificate(s)
-		if err != nil {
-			t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
-		}
-	}
-
-	return chain
 }
 
 func TestSyncWhenEmptyChain(t *testing.T) {
