@@ -468,7 +468,7 @@ func (chain *Chain) canSynchronize(other *Chain) bool {
 }
 
 func (chain *Chain) syncRangeByHeaderAndFinalCertificate(peer *Chain, start, end uint64) error {
-	for height := start; height <= end; height++ {
+	for height := start; height <= end && height < peer.currentHeight; height++ {
 		header := peer.Header(height)
 		if header == nil {
 			return fmt.Errorf("cannt find header(%d)", height)
@@ -484,6 +484,54 @@ func (chain *Chain) syncRangeByHeaderAndFinalCertificate(peer *Chain, start, end
 	}
 
 	return nil
+}
+
+func (chain *Chain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, error) {
+	bc := &breadcrumb{}
+	for height := end; height >= begin; height-- {
+		if sc := chain.stampingCertificate(height); sc != nil {
+			header := chain.header(height)
+			if header == nil {
+				panic(fmt.Sprintf("cannot find header(%d)", height))
+			}
+
+			bc.stampingHeader = header
+			bc.stampingCertificate = sc
+
+			// rollback tail
+			for h := height - 1; h >= begin; h-- {
+				header := chain.header(height)
+				if header == nil {
+					break
+				}
+
+				bc.tail = append(bc.tail, header)
+			}
+
+			return bc, nil
+		}
+	}
+
+	for height := begin; height < chain.scStatus.Fz; height++ {
+		header := chain.header(height)
+		if header == nil {
+			panic(fmt.Sprintf("cannot find header(%d)", height))
+		}
+		fc := chain.finalCertificate(height)
+		if fc == nil {
+			panic(fmt.Sprintf("cannot find fc(%d)", height))
+		}
+
+		bc.forwardHeader = append(bc.forwardHeader, header)
+		bc.forwardFinalCertificate = append(bc.forwardFinalCertificate, fc)
+
+		forwardHeight := height + chain.config.B
+		if sc := chain.stampingCertificate(forwardHeight); sc != nil {
+			break
+		}
+	}
+
+	return bc, nil
 }
 
 type breadcrumb struct {
