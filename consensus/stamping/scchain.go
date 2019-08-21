@@ -500,7 +500,7 @@ func (chain *Chain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, error) {
 
 			// rollback tail
 			for h := height - 1; h >= begin; h-- {
-				header := chain.header(height)
+				header := chain.header(h)
 				if header == nil {
 					break
 				}
