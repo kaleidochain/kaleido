@@ -554,17 +554,16 @@ func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegi
 		if err != nil {
 			return
 		}
-		n := len(breadcrumb.tail)
-		for n > 0 {
-			n--
-			err = chain.addHeader(breadcrumb.tail[n])
+
+		for _, tailHeader := range breadcrumb.tail {
+			err = chain.addHeader(tailHeader)
 			if err != nil {
 				return
 			}
 		}
 
 		nextBegin = chain.currentHeight + 1
-		nextEnd = (chain.currentHeight - uint64(n)) + chain.config.B
+		nextEnd = (chain.currentHeight - uint64(len(breadcrumb.tail))) + chain.config.B
 	} else {
 		for i, h := range breadcrumb.forwardHeader {
 			fc := breadcrumb.forwardFinalCertificate[i]
@@ -599,6 +598,101 @@ func (chain *Chain) Sync(peer *Chain) error {
 		if err != nil {
 			return fmt.Errorf("synchronize frozen breadcrumb in range[%d,%d] failed: %v", chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B, err)
 		}
+	}
+
+	// fz <-- proof
+	for height := peer.scStatus.Fz + 1; height <= peer.scStatus.Proof-chain.config.B; height++ {
+		header := peer.Header(height)
+		if header == nil {
+			return fmt.Errorf("fz <-- proof header(%d) not exists", height)
+		}
+		fc := peer.FinalCertificate(height)
+		if fc == nil {
+			return fmt.Errorf("dense tail fc(%d) not exists", height)
+		}
+		if err := chain.addBlock(header, fc); err != nil {
+			return err
+		}
+	}
+	if peer.scStatus.Proof > chain.config.B {
+		pHeader, pSc := peer.HeaderAndStampingCertificate(peer.scStatus.Proof)
+		if pHeader == nil || pSc == nil {
+			return fmt.Errorf("cannt find proof header and sc, height:%d", peer.scStatus.Proof)
+		}
+		if err := chain.addStampingCertificateWithHeader(pHeader, pSc); err != nil {
+			return err
+		}
+	}
+	for height := peer.scStatus.Proof - 1; height >= peer.scStatus.Candidate-chain.config.B && height > peer.scStatus.Proof-chain.config.B && height > peer.scStatus.Fz; height-- {
+		//fmt.Printf("fz->proof, h(%d), p(%d)\n", height, other.scStatus.Proof)
+		header := peer.Header(height)
+		if header == nil {
+			return fmt.Errorf("header is nil, height:%d", height)
+		}
+		if err := chain.addHeader(header); err != nil {
+			return err
+		}
+	}
+
+	// proof <-- C
+	for height := peer.scStatus.Proof + 1; height <= peer.scStatus.Candidate-chain.config.B; height++ {
+		header := peer.Header(height)
+		if header == nil {
+			return fmt.Errorf("proof <-- C header(%d) not exists", height)
+		}
+		fc := peer.FinalCertificate(height)
+		if fc == nil {
+			return fmt.Errorf("dense tail fc(%d) not exists", height)
+		}
+		if err := chain.addBlock(header, fc); err != nil {
+			return err
+		}
+	}
+	if peer.scStatus.Candidate > chain.config.B {
+		cHeader, cSc := peer.HeaderAndStampingCertificate(peer.scStatus.Candidate)
+		if cHeader == nil || cSc == nil {
+			return fmt.Errorf("cannt find header and sc, height:%d", peer.scStatus.Candidate)
+		}
+		if err := chain.addStampingCertificateWithHeader(cHeader, cSc); err != nil {
+			return err
+		}
+	}
+	for height := peer.scStatus.Candidate - 1; height > peer.scStatus.Candidate-chain.config.B && height > peer.scStatus.Proof; height-- {
+		//fmt.Printf("C-->Proof, h(%d)\n", height)
+		header := peer.Header(height)
+		if err := chain.addHeader(header); err != nil {
+			return err
+		}
+	}
+
+	// dense tail
+	for height := peer.scStatus.Candidate + 1; height <= peer.currentHeight; height++ {
+		header := peer.Header(height)
+		if header == nil {
+			return fmt.Errorf("dense tail header(%d) not exists", height)
+		}
+		fc := peer.FinalCertificate(height)
+		if fc == nil {
+			return fmt.Errorf("dense tail fc(%d) not exists", height)
+		}
+		if err := chain.addBlock(header, fc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (chain *Chain) SyncBase(peer *Chain) error {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
+	if !chain.canSynchronize(peer) {
+		return fmt.Errorf("cannot synchronize from this chain")
+	}
+
+	err := chain.syncRangeByHeaderAndFinalCertificate(peer, 1, chain.config.B)
+	if err != nil {
+		return fmt.Errorf("synchronize the first b blocks failed: %v", err)
 	}
 
 	proofHeight := chain.config.B
