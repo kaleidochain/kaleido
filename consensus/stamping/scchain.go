@@ -326,7 +326,8 @@ func (chain *Chain) updateStampingCertificate(height uint64) {
 	start = MaxUint64(chain.scStatus.Proof-defaultConfig.B, chain.scStatus.Fz)
 	end := MinUint64(chain.scStatus.Candidate-defaultConfig.B, chain.scStatus.Proof)
 	n := chain.trim(start, end)
-	fmt.Printf("trim range=[%d, %d] deleted=%d/%d\n", start, end, n, end-start-1)
+	_ = n
+	//fmt.Printf("trim range=[%d, %d] trimmed=%d/%d\n", start, end, n, end-start-1)
 
 	return
 }
@@ -358,19 +359,18 @@ func (chain *Chain) freeze(proof uint64) {
 
 func (chain *Chain) trim(start, end uint64) int {
 	count := 0
-	for height := start + 1; height < end; height++ {
-		if _, ok := chain.fcChain[height]; ok {
-			panic(fmt.Sprintf("fc(%d) exist", height))
+	for height := end - 1; height > start; height-- {
+		if fc := chain.fcChain[height]; fc != nil {
+			panic(fmt.Sprintf("fc(%d) should already be deleted", height))
+		}
+
+		if chain.headerChain[height] == nil && chain.scChain[height] == nil {
+			break
 		}
 
 		delete(chain.scChain, height)
-
-		if h := chain.header(height); h != nil {
-			count += 1
-		}
-
-		//chain.headerChain[height].Root = common.Hash{}
 		delete(chain.headerChain, height)
+		count += 1
 	}
 
 	return count
