@@ -68,8 +68,8 @@ func buildChainConcurrency(t *testing.T, config *Config, chain *Chain, begin, en
 	}
 }
 
-func buildChainByRandom(t *testing.T, maxHeight uint64) *Chain {
-	chain := NewChain()
+func buildDefaultChainByRandom(t *testing.T, maxHeight uint64) *Chain {
+	chain := NewChain(defaultConfig)
 	buildChainConcurrency(t, defaultConfig, chain, 1, maxHeight+1, randomStampingMaker(defaultConfig.FailureProbability))
 	return chain
 }
@@ -79,7 +79,7 @@ func buildChainBySequence(t *testing.T, b uint64, maxHeight uint64, seq []uint64
 		B:                  b,
 		FailureProbability: 0,
 	}
-	chain := NewChain()
+	chain := NewChain(config)
 	buildChainConcurrency(t, config, chain, 1, maxHeight+1, sequenceStampingMaker(seq))
 	return chain
 }
@@ -89,12 +89,12 @@ func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *Cha
 }
 
 func ensureSyncOk(t *testing.T, a *Chain) {
-	b := NewChain()
+	b := NewChain(a.config)
 	if err := b.Sync(a); err != nil {
 		t.Fatalf("sync error, err:%s", err)
 	}
 
-	c := NewChain()
+	c := NewChain(a.config)
 	if err := c.Sync(b); err != nil {
 		t.Fatalf("sync error, err:%v", err)
 	}
@@ -119,14 +119,14 @@ func ensureSyncOk(t *testing.T, a *Chain) {
 
 func TestNewChain(t *testing.T) {
 	const maxHeight = 100000
-	buildChainByRandom(t, maxHeight)
+	buildDefaultChainByRandom(t, maxHeight)
 }
 
 func TestSyncChain(t *testing.T) {
 	rand.Seed(2)
 
 	const maxHeight = 102
-	a := buildChainByRandom(t, maxHeight)
+	a := buildDefaultChainByRandom(t, maxHeight)
 
 	ensureSyncOk(t, a)
 }
@@ -137,14 +137,14 @@ func TestAutoSyncChain(t *testing.T) {
 
 	for i := 0; i < count; i++ {
 		const maxHeight = 10105
-		a := buildChainByRandom(t, maxHeight)
+		a := buildDefaultChainByRandom(t, maxHeight)
 
 		ensureSyncOk(t, a)
 	}
 }
 
 func TestSyncEmptyChain(t *testing.T) {
-	chain := NewChain()
+	chain := NewChain(defaultConfig)
 	ensureSyncOk(t, chain)
 }
 
