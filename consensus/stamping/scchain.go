@@ -462,8 +462,23 @@ func (chain *Chain) HeaderAndFinalCertificate(height uint64) (*Header, *FinalCer
 	return chain.header(height), chain.finalCertificate(height)
 }
 
-func (chain *Chain) syncRangeByHeaderAndFinalCertificate(start, end uint64) error {
+func (chain *Chain) syncRangeByHeaderAndFinalCertificate(peer *Chain, start, end uint64) error {
+	for height := start; height <= end; height++ {
+		header := peer.Header(height)
+		if header == nil {
+			return fmt.Errorf("cannt find header(%d)", height)
+		}
+		fc := peer.FinalCertificate(height)
+		if fc == nil {
+			return fmt.Errorf("cannt find fc(%d)", height)
+		}
 
+		if err := chain.addBlock(header, fc); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (chain *Chain) Sync(other *Chain) error {
@@ -474,17 +489,8 @@ func (chain *Chain) Sync(other *Chain) error {
 		return fmt.Errorf("sync between different chains")
 	}
 
-	for height := uint64(1); height <= chain.config.B && height <= other.currentHeight; height++ {
-		header := other.Header(height)
-		if header == nil {
-			return fmt.Errorf("cannt find header(%d)", height)
-		}
-		fc := other.FinalCertificate(height)
-		if fc == nil {
-			return fmt.Errorf("cannt find fc(%d)", height)
-		}
-
-		if err := chain.addBlock(header, fc); err != nil {
+	if other.currentHeight >= chain.config.B {
+		if err := chain.syncRangeByHeaderAndFinalCertificate(other, 1, chain.config.B); err != nil {
 			return err
 		}
 	}
