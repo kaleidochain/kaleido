@@ -102,10 +102,15 @@ func ensureSyncOk(t *testing.T, a *Chain) {
 		t.Fatalf("sync error, err:%v", err)
 	}
 
-	if equal, err := c.Equal(a); !equal {
+	d := NewChain(a.config)
+	if err := d.SyncBase(c); err != nil {
+		t.Fatalf("sync error, err:%v", err)
+	}
+
+	if equal, err := d.Equal(a); !equal {
 		a.Print()
 		fmt.Println("---------------------------------after-----------------------------------------------------")
-		c.Print()
+		d.Print()
 		t.Fatal(err)
 	}
 
