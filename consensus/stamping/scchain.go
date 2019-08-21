@@ -343,11 +343,12 @@ func (chain *Chain) AddStampingCertificate(sc *StampingCertificate) error {
 func (chain *Chain) deleteFC(start, end uint64) int {
 	count := 0
 	for i := start; i <= end; i++ {
-		if _, ok := chain.fcChain[i]; ok {
-			delete(chain.fcChain, i)
-
-			count += 1
+		if _, ok := chain.fcChain[i]; !ok {
+			panic(fmt.Sprintf("FC(%d) must exist", i))
 		}
+
+		delete(chain.fcChain, i)
+		count += 1
 	}
 
 	return count
