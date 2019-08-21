@@ -246,6 +246,66 @@ func TestSync0ToBnFzEqualB(t *testing.T) {
 	ensureSyncOk(t, chain)
 }
 
+func TestSyncWhenFPAllHeaderNoFC(t *testing.T) {
+	const B = 20
+
+	maxHeight := uint64(41)
+	// 20-->40->41
+	scHeights := []uint64{40, 41}
+	chain := buildSpecialChain(t, B, maxHeight, scHeights)
+	expectedSCStatus := SCStatus{
+		Candidate: 41,
+		Proof:     40,
+		Fz:        20,
+	}
+	if chain.scStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	}
+	ensureSyncOk(t, chain)
+
+	maxHeight = uint64(60)
+	// 20-->40->41-->60
+	scHeights = []uint64{40, 41, 60}
+	chain = buildSpecialChain(t, B, maxHeight, scHeights)
+	expectedSCStatus = SCStatus{
+		Candidate: 60,
+		Proof:     40,
+		Fz:        20,
+	}
+	if chain.scStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	}
+	ensureSyncOk(t, chain)
+
+	maxHeight = uint64(60)
+	// 20-->40->41-->51
+	scHeights = []uint64{40, 41, 51}
+	chain = buildSpecialChain(t, B, maxHeight, scHeights)
+	expectedSCStatus = SCStatus{
+		Candidate: 51,
+		Proof:     40,
+		Fz:        20,
+	}
+	if chain.scStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	}
+	ensureSyncOk(t, chain)
+
+	maxHeight = uint64(72)
+	// 20-->40->41-->70
+	scHeights = []uint64{40, 41, 70}
+	chain = buildSpecialChain(t, B, maxHeight, scHeights)
+	expectedSCStatus = SCStatus{
+		Candidate: 70,
+		Proof:     41,
+		Fz:        40,
+	}
+	if chain.scStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	}
+	ensureSyncOk(t, chain)
+}
+
 func TestSyncWhenFPNearAndPCFurtherThanB(t *testing.T) {
 	const maxHeight = 130
 	const B = 20
