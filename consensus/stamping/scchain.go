@@ -451,7 +451,7 @@ func (chain *Chain) Sync(other *Chain) error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
-	for height := uint64(1); height <= defaultConfig.B; height++ {
+	for height := uint64(1); height <= defaultConfig.B && height <= other.currentHeight; height++ {
 		header := other.Header(height)
 		if header == nil {
 			return fmt.Errorf("cannt find header(%d)", height)
