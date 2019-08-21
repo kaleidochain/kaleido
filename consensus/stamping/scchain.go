@@ -500,7 +500,7 @@ func (chain *Chain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, error) {
 
 			// rollback tail
 			for h := height - 1; h >= begin; h-- {
-				header := chain.header(height)
+				header := chain.header(h)
 				if header == nil {
 					break
 				}
@@ -593,7 +593,7 @@ func (chain *Chain) Sync(peer *Chain) error {
 		return fmt.Errorf("synchronize the first b blocks failed: %v", err)
 	}
 
-	for begin, end := chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B; chain.scStatus.Fz < peer.scStatus.Fz; {
+	for begin, end := chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B; chain.currentHeight < peer.scStatus.Fz && chain.currentHeight < peer.currentHeight; {
 		begin, end, err = chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {
 			return fmt.Errorf("synchronize frozen breadcrumb in range[%d,%d] failed: %v", chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B, err)
