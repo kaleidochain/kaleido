@@ -319,7 +319,7 @@ func (chain *Chain) updateStampingCertificate(height uint64) {
 	if height-chain.scStatus.Proof <= chain.config.B {
 		chain.scStatus.Candidate = height
 	} else {
-		chain.freeze(chain.scStatus.Proof)
+		chain.freezeProof()
 		chain.scStatus.Proof = chain.scStatus.Candidate
 		chain.scStatus.Candidate = height
 	}
@@ -354,14 +354,14 @@ func (chain *Chain) deleteFC(start, end uint64) int {
 	return count
 }
 
-func (chain *Chain) freeze(proof uint64) {
-	start := MaxUint64(chain.scStatus.Fz+1, chain.scStatus.Proof-defaultConfig.B+1)
+func (chain *Chain) freezeProof() {
+	start := MaxUint64(chain.scStatus.Fz+1, chain.scStatus.Proof-chain.config.B+1)
 	end := chain.scStatus.Proof
 	for height := start; height < end; height++ {
 		delete(chain.scChain, height)
 	}
 
-	chain.scStatus.Fz = proof
+	chain.scStatus.Fz = chain.scStatus.Proof
 }
 
 func (chain *Chain) trim(start, end uint64) int {
