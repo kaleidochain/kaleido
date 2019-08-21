@@ -102,8 +102,8 @@ func ensureSyncOk(t *testing.T, a *Chain) {
 		t.Fatalf("sync error, err:%v", err)
 	}
 
-	if equal, err := c.Equal(b); !equal {
-		b.Print()
+	if equal, err := c.Equal(a); !equal {
+		a.Print()
 		fmt.Println("---------------------------------after-----------------------------------------------------")
 		c.Print()
 		t.Fatal(err)
