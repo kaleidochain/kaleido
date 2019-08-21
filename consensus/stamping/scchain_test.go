@@ -7,10 +7,6 @@ import (
 	"time"
 )
 
-const (
-	newBlockEvent = 1
-)
-
 type StampingMaker interface {
 	Make(height uint64, proofHeader *Header) *StampingCertificate
 }
@@ -92,22 +88,6 @@ func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *Cha
 	return buildChainBySequence(t, B, maxHeight, heights)
 }
 
-func appendStampingCertificate(t *testing.T, B uint64, chain *Chain, heights []uint64) {
-	config := &Config{
-		B:           B,
-		Probability: 0,
-	}
-
-	for _, h := range heights {
-		proof := chain.Header(h - config.B)
-		stampingCertificate := NewStampingCertificate(h, proof)
-		err := chain.addStampingCertificate(stampingCertificate)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 func ensureSyncOk(t *testing.T, a *Chain) {
 	b := NewChain()
 	if err := b.Sync(a); err != nil {
@@ -116,14 +96,14 @@ func ensureSyncOk(t *testing.T, a *Chain) {
 
 	c := NewChain()
 	if err := c.Sync(b); err != nil {
-		t.Fatalf("sync error, err:%s", err)
+		t.Fatalf("sync error, err:%v", err)
 	}
 
 	if equal, err := c.Equal(b); !equal {
 		b.Print()
 		fmt.Println("---------------------------------after-----------------------------------------------------")
 		c.Print()
-		t.Fatal(err.Error())
+		t.Fatal(err)
 	}
 
 	/*
@@ -163,12 +143,8 @@ func TestAutoSyncChain(t *testing.T) {
 	}
 }
 
-func TestSyncWhenEmptyChain(t *testing.T) {
-	const maxHeight = 20
-	const B = 20
-
+func TestSyncEmptyChain(t *testing.T) {
 	chain := NewChain()
-
 	ensureSyncOk(t, chain)
 }
 
