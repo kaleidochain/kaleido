@@ -210,6 +210,16 @@ func TestSync0ToB(t *testing.T) {
 	ensureSyncOk(t, chain)
 }
 
+func TestSyncWithoutSC(t *testing.T) {
+	const maxHeight = 101
+	const B = 20
+
+	// 20
+	chain := buildSpecialChain(t, B, maxHeight, nil)
+
+	ensureSyncOk(t, chain)
+}
+
 func TestSync0ToBnNLessThanB(t *testing.T) {
 	maxHeight := uint64(40)
 	const B = 20
