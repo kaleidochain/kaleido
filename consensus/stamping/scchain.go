@@ -512,7 +512,7 @@ func (chain *Chain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, error) {
 		}
 	}
 
-	for height := begin; height <= chain.scStatus.Candidate; height++ {
+	for height := begin; height <= chain.currentHeight; height++ {
 		header := chain.header(height)
 		if header == nil {
 			panic(fmt.Sprintf("cannot find header(%d)", height))
@@ -595,17 +595,13 @@ func (chain *Chain) Sync(peer *Chain) error {
 	}
 
 	// B - C
-	for begin, end := chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B; chain.currentHeight < peer.scStatus.Candidate && chain.currentHeight < peer.currentHeight; {
-		begin, end, err = chain.syncNextBreadcrumb(peer, begin, end)
+	for begin, end := chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B; chain.currentHeight < peer.currentHeight; {
+		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {
-			return fmt.Errorf("synchronize frozen breadcrumb in range[%d,%d] failed: %v", chain.scStatus.Candidate+1, chain.scStatus.Candidate+chain.config.B, err)
+			return fmt.Errorf("synchronize frozen breadcrumb in range[%d,%d] failed: %v", begin, end, err)
 		}
-	}
 
-	// dense tail
-	err = chain.syncRangeByHeaderAndFinalCertificate(peer, peer.scStatus.Candidate+1, peer.currentHeight)
-	if err != nil {
-		return fmt.Errorf("synchronize the first b blocks failed: %v", err)
+		begin, end = nextBegin, nextEnd
 	}
 
 	return nil
