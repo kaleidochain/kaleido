@@ -617,11 +617,11 @@ func (chain *Chain) Sync(peer *Chain) error {
 		return fmt.Errorf("synchronize the first b blocks failed: %v", err)
 	}
 
-	// B - C
+	// B - peer.currentHeight
 	for begin, end := chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B; chain.currentHeight < peer.currentHeight; {
 		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {
-			return fmt.Errorf("synchronize frozen breadcrumb in range[%d,%d] failed: %v", begin, end, err)
+			return fmt.Errorf("synchronize breadcrumb in range[%d,%d] failed: %v", begin, end, err)
 		}
 
 		begin, end = nextBegin, nextEnd
