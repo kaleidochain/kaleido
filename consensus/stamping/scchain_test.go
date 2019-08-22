@@ -391,8 +391,10 @@ func TestSyncWhenFPEqualBAndPCEqualBAdd1(t *testing.T) {
 // ----------------
 
 func TestBuildMultiChain(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+
 	config := &Config{
-		B:                  7,
+		B:                  1000,
 		FailureProbability: 65,
 	}
 
@@ -401,9 +403,9 @@ func TestBuildMultiChain(t *testing.T) {
 		chains[i] = NewChain(config)
 	}
 
-	buildChainConcurrency(t, config, chains, 1, 100, randomStampingMaker(config.FailureProbability))
+	buildChainConcurrency(t, config, chains, 1, 50000, randomStampingMaker(config.FailureProbability))
 
 	for _, c := range chains {
-		c.Print()
+		c.PrintFrozenBreadcrumbs()
 	}
 }

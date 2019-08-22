@@ -389,8 +389,20 @@ func (chain *Chain) Print() {
 
 	count := chain.printRange(1, chain.currentHeight+1)
 
-	fmt.Printf("Status: Fz: %d, Proof:%d, Candidate:%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
-	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%\n", chain.currentHeight, count, float64(count*10000/chain.currentHeight)/100)
+	fmt.Printf("Status: Fz=%d, Proof=%d, Candidate=%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
+	fmt.Printf("MaxHeight=%d, realLength=%d, percent=%.2f%%\n", chain.currentHeight, count, float64(count*10000/chain.currentHeight)/100)
+}
+
+func (chain *Chain) PrintFrozenBreadcrumbs() {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	begin := chain.config.B + 1
+	end := chain.scStatus.Fz + 1
+	count := chain.printRange(begin, end)
+
+	fmt.Printf("Status: Fz=%d, Proof=%d, Candidate=%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
+	fmt.Printf("RangeLength=%d, realLength=%d, percent=%.2f%%\n", end-begin, count, float64(count*10000/(end-begin))/100)
 }
 
 func (chain *Chain) printRange(begin, end uint64) uint64 {
