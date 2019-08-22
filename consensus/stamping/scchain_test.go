@@ -89,11 +89,24 @@ func buildChainConcurrency(t *testing.T, config *Config, chain ChainReadWriter, 
 			continue
 		}
 
-		proofHeader := chain.Header(height - config.B)
-		if s := maker.Make(height, proofHeader); s != nil {
-			err := chain.AddStampingCertificate(s)
-			if err != nil {
-				t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+		switch c := chain.(type) {
+		case *Chain:
+			proofHeader := c.Header(height - config.B)
+			if s := maker.Make(height, proofHeader); s != nil {
+				err := c.AddStampingCertificate(s)
+				if err != nil {
+					t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+				}
+			}
+		case MultiChainWrapper:
+			for _, each := range c {
+				proofHeader := each.Header(height - config.B)
+				if s := maker.Make(height, proofHeader); s != nil {
+					err := each.AddStampingCertificate(s)
+					if err != nil {
+						t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
+					}
+				}
 			}
 		}
 	}
