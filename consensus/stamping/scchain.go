@@ -387,9 +387,10 @@ func (chain *Chain) Print() {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
-	realLength := uint64(0)
-	prev := uint64(0)
-	line := 0
+	const perLine = 8
+
+	lastPrinted := uint64(0)
+	count := uint64(0)
 	for height := uint64(1); height <= chain.currentHeight; height++ {
 		header := chain.headerChain[height]
 		fc := chain.fcChain[height]
@@ -405,54 +406,55 @@ func (chain *Chain) Print() {
 			continue
 		}
 
-		realLength++
+		hasParent := lastPrinted == height-1
+		lastPrinted = height
 
-		fcTag := ""
-		if fc != nil {
-			fcTag = "F"
-
-			if _, ok := chain.headerChain[height-1]; !ok {
-				fcTag = "f"
-			}
-		}
-
-		scTag := ""
-		if sc != nil {
-			scTag = "S"
-
-			if _, ok := chain.headerChain[height-chain.config.B]; !ok {
-				scTag = "s"
-			}
-		}
-
-		arrow := ""
-		if height > 0 && height-1 == prev {
-			arrow = "<-"
-		}
-		prev = height
-
-		zpcTag := ""
-		switch height {
-		case chain.scStatus.Fz:
-			zpcTag = "Z"
-		case chain.scStatus.Proof:
-			zpcTag = "P"
-		case chain.scStatus.Candidate:
-			zpcTag = "C"
-		}
-
-		line += 1
-		fmt.Printf("%2s[%4d(%1s%1s%1s)]", arrow, height, zpcTag, fcTag, scTag)
-		if line >= 8 {
+		fmt.Printf("%s", chain.formatHeader(height, fc, sc, hasParent))
+		if count++; count%perLine == 0 {
 			fmt.Println()
-
-			line = 0
 		}
 	}
 	fmt.Println()
 
 	fmt.Printf("Status: Fz: %d, Proof:%d, Candidate:%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
-	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%\n", chain.currentHeight, realLength, float64(realLength*10000/chain.currentHeight)/100)
+	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%\n", chain.currentHeight, count, float64(count*10000/chain.currentHeight)/100)
+}
+
+func (chain *Chain) formatHeader(height uint64, fc *FinalCertificate, sc *StampingCertificate, hasParent bool) string {
+	fcTag := ""
+	if fc != nil {
+		fcTag = "F"
+
+		if _, ok := chain.headerChain[height-1]; !ok {
+			fcTag = "f"
+		}
+	}
+
+	scTag := ""
+	if sc != nil {
+		scTag = "S"
+
+		if _, ok := chain.headerChain[height-chain.config.B]; !ok {
+			scTag = "s"
+		}
+	}
+
+	arrow := ""
+	if hasParent {
+		arrow = "<-"
+	}
+
+	zpcTag := ""
+	switch height {
+	case chain.scStatus.Fz:
+		zpcTag = "Z"
+	case chain.scStatus.Proof:
+		zpcTag = "P"
+	case chain.scStatus.Candidate:
+		zpcTag = "C"
+	}
+
+	return fmt.Sprintf("%2s[%4d(%1s%1s%1s)]", arrow, height, zpcTag, fcTag, scTag)
 }
 
 func (chain *Chain) HeaderAndFinalCertificate(height uint64) (*Header, *FinalCertificate) {
