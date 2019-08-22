@@ -31,7 +31,38 @@ func (sequence sequenceStampingMaker) Make(height uint64, proofHeader *Header) *
 	return nil
 }
 
-func buildChainConcurrency(t *testing.T, config *Config, chain *Chain, begin, end uint64, maker StampingMaker) {
+type ChainReadWriter interface {
+	Header(height uint64) *Header
+	AddBlock(header *Header, fc *FinalCertificate) error
+	AddStampingCertificate(sc *StampingCertificate) error
+}
+
+type MultiChainWrapper []*Chain
+
+func (c MultiChainWrapper) Header(height uint64) *Header {
+	return c[0].Header(height)
+}
+
+func (c MultiChainWrapper) AddBlock(header *Header, fc *FinalCertificate) error {
+	for _, each := range c {
+		err := each.AddBlock(header, fc)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (c MultiChainWrapper) AddStampingCertificate(sc *StampingCertificate) error {
+	for _, each := range c {
+		err := each.AddStampingCertificate(sc)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildChainConcurrency(t *testing.T, config *Config, chain ChainReadWriter, begin, end uint64, maker StampingMaker) {
 	blockHeightCh := make(chan uint64, 1)
 	go func() {
 		if begin == 0 {
@@ -342,4 +373,24 @@ func TestSyncWhenFPEqualBAndPCEqualBAdd1(t *testing.T) {
 	chain := buildSpecialChain(t, B, maxHeight, scHeights)
 
 	ensureSyncOk(t, chain)
+}
+
+// ----------------
+
+func TestBuildMultiChain(t *testing.T) {
+	config := &Config{
+		B:                  7,
+		FailureProbability: 65,
+	}
+
+	chains := make(MultiChainWrapper, 3)
+	for i := range chains {
+		chains[i] = NewChain(config)
+	}
+
+	buildChainConcurrency(t, config, chains, 1, 100, randomStampingMaker(config.FailureProbability))
+
+	for _, c := range chains {
+		c.Print()
+	}
 }
