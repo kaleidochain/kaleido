@@ -387,11 +387,18 @@ func (chain *Chain) Print() {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
+	count := chain.printRange(1, chain.currentHeight+1)
+
+	fmt.Printf("Status: Fz: %d, Proof:%d, Candidate:%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
+	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%\n", chain.currentHeight, count, float64(count*10000/chain.currentHeight)/100)
+}
+
+func (chain *Chain) printRange(begin, end uint64) uint64 {
 	const perLine = 8
 
 	lastPrinted := uint64(0)
 	count := uint64(0)
-	for height := uint64(1); height <= chain.currentHeight; height++ {
+	for height := begin; height < end; height++ {
 		header := chain.headerChain[height]
 		fc := chain.fcChain[height]
 		sc := chain.scChain[height]
@@ -414,10 +421,12 @@ func (chain *Chain) Print() {
 			fmt.Println()
 		}
 	}
-	fmt.Println()
 
-	fmt.Printf("Status: Fz: %d, Proof:%d, Candidate:%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
-	fmt.Printf("MaxHeight: %d, realLength: %d, percent:%.2f%%\n", chain.currentHeight, count, float64(count*10000/chain.currentHeight)/100)
+	if count%perLine != 0 {
+		fmt.Println()
+	}
+
+	return count
 }
 
 func (chain *Chain) formatHeader(height uint64, fc *FinalCertificate, sc *StampingCertificate, hasParent bool) string {
