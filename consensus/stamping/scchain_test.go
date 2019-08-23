@@ -85,7 +85,7 @@ func buildChainConcurrency(t *testing.T, config *Config, chain ChainReadWriter, 
 	}()
 
 	for height := range blockHeightCh {
-		if height <= config.B {
+		if height <= config.HeightB() {
 			continue
 		}
 

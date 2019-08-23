@@ -41,6 +41,18 @@ type Config struct {
 	BaseHash           common.Hash // hash of the BaseHeight header
 }
 
+func (c Config) HeightB() uint64 {
+	return c.BaseHeight + c.B
+}
+
+func (c Config) InitialStampingStatus() SCStatus {
+	return SCStatus{
+		Candidate: c.HeightB(),
+		Proof:     c.HeightB(),
+		Fz:        c.HeightB(),
+	}
+}
+
 type Header struct {
 	Height     uint64
 	ParentHash common.Hash
@@ -101,9 +113,9 @@ func NewStampingCertificate(height uint64, proofHeader *Header) *StampingCertifi
 }
 
 func (sc *StampingCertificate) Verify(config *Config, header, proofHeader *Header) bool {
-	return sc.Height > config.B &&
+	return sc.Height > config.HeightB() &&
 		sc.Height == header.Height &&
-		sc.Height == proofHeader.Height+config.B &&
+		header.Height == proofHeader.Height+config.B &&
 		sc.Seed == proofHeader.Seed &&
 		sc.Root == proofHeader.Root
 }
@@ -143,11 +155,7 @@ func NewChain(config *Config) *Chain {
 		headerChain: make(map[uint64]*Header),
 		fcChain:     make(map[uint64]*FinalCertificate),
 		scChain:     make(map[uint64]*StampingCertificate),
-		scStatus: SCStatus{
-			Candidate: config.B,
-			Proof:     config.B,
-			Fz:        config.B,
-		},
+		scStatus:    config.InitialStampingStatus(),
 	}
 	chain.headerChain[0] = genesisHeader
 
@@ -412,7 +420,7 @@ func (chain *Chain) PrintFrozenBreadcrumbs() {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
-	begin := chain.config.B + 1
+	begin := chain.config.HeightB() + 1
 	end := chain.scStatus.Fz + 1
 	count := chain.printRange(begin, end)
 
@@ -427,7 +435,7 @@ func (chain *Chain) PrintProperty() {
 	countForward := 0
 	sumForwardLength := 0
 
-	for begin, end := chain.config.B+1, chain.config.B*2; end <= chain.scStatus.Fz; {
+	for begin, end := chain.config.HeightB()+1, chain.config.HeightB()+chain.config.B; end <= chain.scStatus.Fz; {
 		breadcrumb, err := chain.getNextBreadcrumb(begin, end)
 		if err != nil {
 			panic("invalid chain")
@@ -733,13 +741,15 @@ func (chain *Chain) SyncBase(peer *Chain) error {
 		return fmt.Errorf("cannot synchronize from this chain")
 	}
 
-	err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, 1, chain.config.B)
+	start := chain.config.BaseHeight + 1
+	end := chain.config.BaseHeight + chain.config.B
+	err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, start, end)
 	if err != nil {
 		return fmt.Errorf("synchronize the first b blocks failed: %v", err)
 	}
 
-	proofHeight := chain.config.B
-	for height := proofHeight + chain.config.B; peer.scStatus.Fz > chain.config.B; {
+	proofHeight := end
+	for height := proofHeight + chain.config.B; peer.scStatus.Fz > end; {
 		//fmt.Printf("process h(%d), proofHeight(%d)\n", height, proofHeight)
 		scHeader, sc := peer.HeaderAndStampingCertificate(height)
 		if sc != nil {
@@ -831,7 +841,7 @@ func (chain *Chain) SyncBase(peer *Chain) error {
 			return err
 		}
 	}
-	if peer.scStatus.Proof > chain.config.B {
+	if peer.scStatus.Proof > chain.config.HeightB() {
 		pHeader, pSc := peer.HeaderAndStampingCertificate(peer.scStatus.Proof)
 		if pHeader == nil || pSc == nil {
 			return fmt.Errorf("cannt find proof header and sc, height:%d", peer.scStatus.Proof)
@@ -865,7 +875,7 @@ func (chain *Chain) SyncBase(peer *Chain) error {
 			return err
 		}
 	}
-	if peer.scStatus.Candidate > chain.config.B {
+	if peer.scStatus.Candidate > chain.config.HeightB() {
 		cHeader, cSc := peer.HeaderAndStampingCertificate(peer.scStatus.Candidate)
 		if cHeader == nil || cSc == nil {
 			return fmt.Errorf("cannt find header and sc, height:%d", peer.scStatus.Candidate)
