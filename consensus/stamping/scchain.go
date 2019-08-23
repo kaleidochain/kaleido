@@ -37,6 +37,8 @@ func MinUint64(a, b uint64) uint64 {
 type Config struct {
 	B                  uint64
 	FailureProbability int
+	BaseHeight         uint64      // from the height Vault starts, for a new chain, it's 0
+	BaseHash           common.Hash // hash of the BaseHeight header
 }
 
 type Header struct {
@@ -204,9 +206,22 @@ func (chain *Chain) AddHeader(header *Header) error {
 	return chain.addHeader(header)
 }
 
+func (chain *Chain) addHeaderWithHash(header *Header, hash common.Hash) error {
+	if header.Hash() != hash {
+		return fmt.Errorf("invalid header(%d): hash not matched, expect %s but got %s",
+			header.Height, hash, header.Hash())
+	}
+	if _, ok := chain.headerChain[header.Height]; ok {
+		return fmt.Errorf("header(%d) already exists", header.Height)
+	}
+
+	chain.headerChain[header.Height] = header
+	return nil
+}
+
 func (chain *Chain) addHeader(header *Header) error {
 	if _, ok := chain.headerChain[header.Height]; ok {
-		return fmt.Errorf("header(%d) exists", header.Height)
+		return fmt.Errorf("header(%d) already exists", header.Height)
 	}
 	nextHeader, ok := chain.headerChain[header.Height+1]
 	if !ok {
@@ -534,15 +549,15 @@ func (chain *Chain) canSynchronize(other *Chain) bool {
 		chain.headerChain[0].Hash() == other.headerChain[0].Hash()
 }
 
-func (chain *Chain) syncRangeByHeaderAndFinalCertificate(peer *Chain, start, end uint64) error {
+func (chain *Chain) forwardSyncRangeByHeaderAndFinalCertificate(peer *Chain, start, end uint64) error {
 	for height := start; height <= end && height <= peer.currentHeight; height++ {
-		header := peer.Header(height)
-		if header == nil {
-			return fmt.Errorf("cannt find header(%d)", height)
+		if chain.hasHeader(height) {
+			continue
 		}
-		fc := peer.FinalCertificate(height)
-		if fc == nil {
-			return fmt.Errorf("cannt find fc(%d)", height)
+
+		header, fc := peer.HeaderAndFinalCertificate(height)
+		if header == nil || fc == nil {
+			return fmt.Errorf("peer has no header or fc at height(%d)", height)
 		}
 
 		if err := chain.addBlock(header, fc); err != nil {
@@ -553,6 +568,30 @@ func (chain *Chain) syncRangeByHeaderAndFinalCertificate(peer *Chain, start, end
 	return nil
 }
 
+func (chain *Chain) backwardSyncRangeOnlyByHeader(peer *Chain, start, end uint64, endHash common.Hash) error {
+	for height := end; height >= start; height-- {
+		if chain.hasHeader(height) {
+			continue
+		}
+
+		header := peer.Header(height)
+		if header == nil {
+			return fmt.Errorf("peer has no header(%d)", height)
+		}
+
+		var err error
+		if height == end {
+			err = chain.addHeaderWithHash(header, endHash)
+		} else {
+			err = chain.addHeader(header)
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
 func (chain *Chain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, error) {
 	bc := &breadcrumb{}
 	for height := end; height >= begin; height-- {
@@ -655,10 +694,22 @@ func (chain *Chain) Sync(peer *Chain) error {
 		return fmt.Errorf("cannot synchronize from this chain")
 	}
 
-	// 0 - B
-	err := chain.syncRangeByHeaderAndFinalCertificate(peer, 1, chain.config.B)
-	if err != nil {
-		return fmt.Errorf("synchronize the first b blocks failed: %v", err)
+	// sync the first b range [Base+1, Base+B] if needed
+	baseHeight := chain.config.BaseHeight
+	if end := baseHeight + chain.config.B; chain.currentHeight < end && chain.currentHeight < peer.currentHeight {
+		var start uint64
+		if common.EmptyHash(chain.config.BaseHash) {
+			// 第一批节点启动的节点是不知道BaseHash的，这时要回退到从创世区块一个一个拉取
+			start = 0 + 1
+		} else {
+			// 后续启动的节点，将设置好BaseHash，就可以跳过[1, BaseHeight)范围了
+			start = baseHeight + 1
+		}
+
+		err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, start, end)
+		if err != nil {
+			return fmt.Errorf("forward synchronize the first b blocks failed: %v", err)
+		}
 	}
 
 	// B - C
@@ -682,7 +733,7 @@ func (chain *Chain) SyncBase(peer *Chain) error {
 		return fmt.Errorf("cannot synchronize from this chain")
 	}
 
-	err := chain.syncRangeByHeaderAndFinalCertificate(peer, 1, chain.config.B)
+	err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, 1, chain.config.B)
 	if err != nil {
 		return fmt.Errorf("synchronize the first b blocks failed: %v", err)
 	}
