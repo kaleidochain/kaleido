@@ -761,7 +761,7 @@ func (chain *Chain) Sync(peer *Chain) error {
 			start = 0 + 1
 		} else {
 			// 后续启动的节点，将设置好BaseHash，就可以跳过[1, BaseHeight)范围了
-			start = baseHeight + 1
+			start = baseHeight
 		}
 
 		err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, start, end)
