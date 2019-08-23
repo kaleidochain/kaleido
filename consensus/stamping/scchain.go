@@ -17,6 +17,8 @@ var (
 	genesisHeader = &Header{
 		Height: 0,
 	}
+
+	ErrCanntFindProofHeader = fmt.Errorf("cannt find proof header")
 )
 
 func MaxUint64(a, b uint64) uint64 {
@@ -280,7 +282,7 @@ func (chain *Chain) verifyStampingCertificate(header *Header, sc *StampingCertif
 
 	proofHeader, ok := chain.headerChain[sc.Height-chain.config.B]
 	if !ok {
-		return fmt.Errorf("proof header(%d) not exists", sc.Height-chain.config.B)
+		return ErrCanntFindProofHeader
 	}
 
 	if !sc.Verify(chain.config, header, proofHeader) {
@@ -557,6 +559,21 @@ func (chain *Chain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, error) {
 	return bc, nil
 }
 
+func (chain *Chain) getHeaders(begin, end uint64) (headers []*Header, err error) {
+	for height := end; height >= begin; height-- {
+		header := chain.header(height)
+		if header == nil {
+			err = fmt.Errorf("cannot find header(%d)", height)
+			panic(err)
+			return
+		}
+
+		headers = append(headers, header)
+	}
+
+	return
+}
+
 type breadcrumb struct {
 	stampingHeader      *Header
 	stampingCertificate *StampingCertificate
@@ -574,6 +591,12 @@ func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegi
 
 	if breadcrumb.stampingHeader != nil {
 		err = chain.addStampingCertificateWithHeader(breadcrumb.stampingHeader, breadcrumb.stampingCertificate)
+		if err == ErrCanntFindProofHeader {
+			if err = chain.fixNotExistHeaderForSC(peer, breadcrumb.stampingHeader.Height-chain.config.B, begin-1); err != nil {
+				return
+			}
+			err = chain.addStampingCertificateWithHeader(breadcrumb.stampingHeader, breadcrumb.stampingCertificate)
+		}
 		if err != nil {
 			return
 		}
@@ -603,6 +626,21 @@ func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegi
 	return
 }
 
+func (chain *Chain) fixNotExistHeaderForSC(peer *Chain, begin, end uint64) (err error) {
+	headers, err := peer.getHeaders(begin, end)
+	if err != nil {
+		return
+	}
+
+	for _, tailHeader := range headers {
+		err = chain.addHeader(tailHeader)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
 func (chain *Chain) Sync(peer *Chain) error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
@@ -618,7 +656,7 @@ func (chain *Chain) Sync(peer *Chain) error {
 	}
 
 	// B - peer.currentHeight
-	for begin, end := chain.scStatus.Fz+1, chain.scStatus.Fz+chain.config.B; chain.currentHeight < peer.currentHeight; {
+	for begin, end := chain.scStatus.Candidate+1, chain.scStatus.Candidate+chain.config.B; chain.currentHeight < peer.currentHeight; {
 		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {
 			return fmt.Errorf("synchronize breadcrumb in range[%d,%d] failed: %v", begin, end, err)
