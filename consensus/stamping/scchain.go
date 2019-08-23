@@ -17,8 +17,6 @@ var (
 	genesisHeader = &Header{
 		Height: 0,
 	}
-
-	ErrCanntFindProofHeader = fmt.Errorf("cannt find proof header")
 )
 
 func MaxUint64(a, b uint64) uint64 {
@@ -282,7 +280,7 @@ func (chain *Chain) verifyStampingCertificate(header *Header, sc *StampingCertif
 
 	proofHeader, ok := chain.headerChain[sc.Height-chain.config.B]
 	if !ok {
-		return ErrCanntFindProofHeader
+		return fmt.Errorf("proof header(%d) not exists", sc.Height-chain.config.B)
 	}
 
 	if !sc.Verify(chain.config, header, proofHeader) {
@@ -559,12 +557,11 @@ func (chain *Chain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, error) {
 	return bc, nil
 }
 
-func (chain *Chain) getHeaders(begin, end uint64) (headers []*Header, err error) {
+func (chain *Chain) getAllHeaders(begin, end uint64) (headers []*Header) {
 	for height := end; height >= begin; height-- {
 		header := chain.header(height)
 		if header == nil {
-			err = fmt.Errorf("cannot find header(%d)", height)
-			panic(err)
+			headers = nil
 			return
 		}
 
@@ -590,13 +587,17 @@ func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegi
 	}
 
 	if breadcrumb.stampingHeader != nil {
-		err = chain.addStampingCertificateWithHeader(breadcrumb.stampingHeader, breadcrumb.stampingCertificate)
-		if err == ErrCanntFindProofHeader {
-			if err = chain.fixNotExistHeaderForSC(peer, breadcrumb.stampingHeader.Height-chain.config.B, begin-1); err != nil {
+		if proofHeader := chain.header(breadcrumb.stampingHeader.Height - chain.config.B); proofHeader == nil {
+			tailLength := chain.getTailLength(end)
+			neededBegin := breadcrumb.stampingHeader.Height - chain.config.B
+			neededEnd := end - 1 - tailLength
+			if err = chain.syncAllHeaders(peer, neededBegin, neededEnd); err != nil {
+				// TODO: switch to full node
 				return
 			}
-			err = chain.addStampingCertificateWithHeader(breadcrumb.stampingHeader, breadcrumb.stampingCertificate)
 		}
+
+		err = chain.addStampingCertificateWithHeader(breadcrumb.stampingHeader, breadcrumb.stampingCertificate)
 		if err != nil {
 			return
 		}
@@ -626,9 +627,20 @@ func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegi
 	return
 }
 
-func (chain *Chain) fixNotExistHeaderForSC(peer *Chain, begin, end uint64) (err error) {
-	headers, err := peer.getHeaders(begin, end)
-	if err != nil {
+func (chain *Chain) getTailLength(height uint64) (length uint64) {
+	for h := height - 1; h > height-chain.config.B; h-- {
+		if _, ok := chain.headerChain[h]; !ok {
+			return
+		}
+		length += 1
+	}
+	return
+}
+
+func (chain *Chain) syncAllHeaders(peer *Chain, begin, end uint64) (err error) {
+	headers := peer.getAllHeaders(begin, end)
+	if len(headers) == 0 || headers[len(headers)-1].Height != begin {
+		err = fmt.Errorf("peer do not have 'begin(%d)'", begin)
 		return
 	}
 
@@ -655,7 +667,7 @@ func (chain *Chain) Sync(peer *Chain) error {
 		return fmt.Errorf("synchronize the first b blocks failed: %v", err)
 	}
 
-	// B - peer.currentHeight
+	// C+1 - peer.currentHeight
 	for begin, end := chain.scStatus.Candidate+1, chain.scStatus.Candidate+chain.config.B; chain.currentHeight < peer.currentHeight; {
 		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {
