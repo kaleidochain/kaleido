@@ -3,6 +3,7 @@ package stamping
 import (
 	"crypto/sha512"
 	"fmt"
+	"math/rand"
 	"sync"
 
 	"github.com/kaleidochain/kaleido/common"
@@ -147,6 +148,8 @@ type Chain struct {
 
 	currentHeight uint64
 	scStatus      SCStatus
+
+	peers []*Chain
 }
 
 func NewChain(config *Config) *Chain {
@@ -160,6 +163,14 @@ func NewChain(config *Config) *Chain {
 	chain.headerChain[0] = genesisHeader
 
 	return chain
+}
+
+func (chain *Chain) AddPeer(peer *Chain) {
+	chain.peers = append(chain.peers, peer)
+}
+
+func (chain *Chain) getPeer() *Chain {
+	return chain.peers[rand.Intn(len(chain.peers))]
 }
 
 func (chain *Chain) FinalCertificate(height uint64) *FinalCertificate {
@@ -744,9 +755,11 @@ func (chain *Chain) syncAllHeaders(peer *Chain, begin, end uint64) (err error) {
 	return
 }
 
-func (chain *Chain) Sync(peer *Chain) error {
+func (chain *Chain) Sync() error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
+
+	peer := chain.getPeer()
 
 	if !chain.canSynchronize(peer) {
 		return fmt.Errorf("cannot synchronize from this chain")

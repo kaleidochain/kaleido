@@ -134,7 +134,8 @@ func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *Cha
 
 func ensureSyncOk(t *testing.T, a *Chain) {
 	b := NewChain(a.config)
-	if err := b.Sync(a); err != nil {
+	b.AddPeer(a)
+	if err := b.Sync(); err != nil {
 		a.Print()
 		fmt.Println("---------------------------------after-----------------------------------------------------")
 		b.Print()
@@ -142,7 +143,8 @@ func ensureSyncOk(t *testing.T, a *Chain) {
 	}
 
 	c := NewChain(a.config)
-	if err := c.Sync(b); err != nil {
+	c.AddPeer(b)
+	if err := c.Sync(); err != nil {
 		t.Fatalf("sync error, err:%v", err)
 	}
 
