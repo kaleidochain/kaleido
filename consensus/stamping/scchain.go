@@ -760,8 +760,19 @@ func (chain *Chain) Sync(peer *Chain) error {
 			// 第一批节点启动的节点是不知道BaseHash的，这时要回退到从创世区块一个一个拉取
 			start = 0 + 1
 		} else {
-			// 后续启动的节点，将设置好BaseHash，就可以跳过[1, BaseHeight)范围了
-			start = baseHeight
+			// 后续启动的节点，将设置好BaseHash
+
+			// 如果需要，下载BaseHeight的header
+			// TODO: 也许应该将BaseHeader和BaseHash一起写到代码里面来，就不用多下一次了
+			if !chain.hasHeader(baseHeight) {
+				base := peer.Header(baseHeight)
+				if err := chain.addHeaderWithHash(base, chain.config.BaseHash); err != nil {
+					return err
+				}
+			}
+
+			// 现在就可以跳过[1, BaseHeight]范围了
+			start = baseHeight + 1
 		}
 
 		err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, start, end)
