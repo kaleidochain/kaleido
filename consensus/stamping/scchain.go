@@ -752,29 +752,26 @@ func (chain *Chain) Sync(peer *Chain) error {
 		return fmt.Errorf("cannot synchronize from this chain")
 	}
 
+	// make BaseHeader exist as the genesis block header for stamping certificate
+	if !chain.hasHeader(chain.config.BaseHeight) {
+		if common.EmptyHash(chain.config.BaseHash) {
+			// sync [1, Base] to get BaseHeader
+			err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, 1, chain.config.BaseHeight)
+			if err != nil {
+				return fmt.Errorf("forward synchronize [1, Base] failed: %v", err)
+			}
+		} else {
+			// TODO: 也许应该将BaseHeader和BaseHash一起写到代码里面来，就不用下载了
+			base := peer.Header(chain.config.BaseHeight)
+			if err := chain.addHeaderWithHash(base, chain.config.BaseHash); err != nil {
+				return err
+			}
+		}
+	}
+
 	// sync the first b range [Base+1, Base+B] if needed
 	baseHeight := chain.config.BaseHeight
-	if end := baseHeight + chain.config.B; chain.currentHeight < end && chain.currentHeight < peer.currentHeight {
-		var start uint64
-		if common.EmptyHash(chain.config.BaseHash) {
-			// 第一批节点启动的节点是不知道BaseHash的，这时要回退到从创世区块一个一个拉取
-			start = 0 + 1
-		} else {
-			// 后续启动的节点，将设置好BaseHash
-
-			// 如果需要，下载BaseHeight的header
-			// TODO: 也许应该将BaseHeader和BaseHash一起写到代码里面来，就不用多下一次了
-			if !chain.hasHeader(baseHeight) {
-				base := peer.Header(baseHeight)
-				if err := chain.addHeaderWithHash(base, chain.config.BaseHash); err != nil {
-					return err
-				}
-			}
-
-			// 现在就可以跳过[1, BaseHeight]范围了
-			start = baseHeight + 1
-		}
-
+	if start, end := baseHeight+1, baseHeight+chain.config.B; chain.currentHeight < end && chain.currentHeight < peer.currentHeight {
 		err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, start, end)
 		if err != nil {
 			return fmt.Errorf("forward synchronize the first b blocks failed: %v", err)
