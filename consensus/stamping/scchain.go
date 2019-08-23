@@ -405,6 +405,50 @@ func (chain *Chain) PrintFrozenBreadcrumbs() {
 	fmt.Printf("RangeLength=%d, realLength=%d, percent=%.2f%%\n", end-begin, count, float64(count*10000/(end-begin))/100)
 }
 
+func (chain *Chain) PrintProperty() {
+	countBreadcrumb := 0
+	countTail := 0
+	sumTailLength := 0
+	countForward := 0
+	sumForwardLength := 0
+
+	for begin, end := chain.config.B+1, chain.config.B*2; end <= chain.scStatus.Fz; {
+		breadcrumb, err := chain.getNextBreadcrumb(begin, end)
+		if err != nil {
+			panic("invalid chain")
+		}
+
+		countBreadcrumb++
+		if breadcrumb.stampingHeader != nil {
+			if n := len(breadcrumb.tail); n > 0 {
+				countTail++
+				sumTailLength += n
+			}
+
+			begin = breadcrumb.stampingHeader.Height + 1
+			end = (breadcrumb.stampingHeader.Height - uint64(len(breadcrumb.tail))) + chain.config.B
+		} else {
+			countForward++
+			sumForwardLength += len(breadcrumb.forwardHeader)
+
+			lastOne := breadcrumb.forwardHeader[len(breadcrumb.forwardHeader)-1]
+			begin = lastOne.Height + 1
+			end = lastOne.Height + chain.config.B
+		}
+	}
+
+	avgTailLen := 0.0
+	if countTail > 0 {
+		avgTailLen = float64(sumTailLength) / float64(countTail)
+	}
+	avgForwardLen := 0.0
+	if countForward > 0 {
+		avgForwardLen = float64(sumForwardLength) / float64(countForward)
+	}
+	fmt.Printf("#Breadcrum=%d, #Tail=%d, TailLenTotal=%d, avgTailLen=%f, #Forward=%d, ForwardLenTotal=%d, avgForwardLen=%f\n",
+		countBreadcrumb, countTail, sumTailLength, avgTailLen, countForward, sumForwardLength, avgForwardLen)
+}
+
 func (chain *Chain) printRange(begin, end uint64) uint64 {
 	const perLine = 8
 

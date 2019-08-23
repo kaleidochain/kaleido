@@ -408,4 +408,7 @@ func TestBuildMultiChain(t *testing.T) {
 	for _, c := range chains {
 		c.PrintFrozenBreadcrumbs()
 	}
+	for _, c := range chains {
+		c.PrintProperty()
+	}
 }
