@@ -161,6 +161,7 @@ type Chain struct {
 	currentHeight uint64
 	scStatus      SCStatus
 
+	name         string
 	peers        []*Chain
 	archive      *Chain
 	troubleMaker TroubleMaker
@@ -184,10 +185,12 @@ func (chain *Chain) SetTroubleMaker(t TroubleMaker) {
 }
 
 func (chain *Chain) AddPeer(peer *Chain) {
+	peer.name = fmt.Sprintf("%d", len(chain.peers))
 	chain.peers = append(chain.peers, peer)
 }
 
 func (chain *Chain) AddArchivePeer(archivePeer *Chain) {
+	archivePeer.name = "archive"
 	chain.archive = archivePeer
 }
 
@@ -713,32 +716,34 @@ type breadcrumb struct {
 }
 
 func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegin, nextEnd uint64, err error) {
-	breadcrumb, err := peer.getNextBreadcrumb(begin, end)
+	var bc *breadcrumb
+	bc, err = peer.getNextBreadcrumb(begin, end)
 	if err != nil {
 		return
 	}
 
-	if breadcrumb.stampingHeader != nil {
-		if proofHeader := chain.header(breadcrumb.stampingHeader.Height - chain.config.B); proofHeader == nil {
-			tailLength := chain.getTailLength(end)
-			neededBegin := breadcrumb.stampingHeader.Height - chain.config.B
-			neededEnd := end - 1 - tailLength
+	if bc.stampingHeader != nil {
+		if proofHeader := chain.header(bc.stampingHeader.Height - chain.config.B); proofHeader == nil {
+			tailLength := chain.getTailLength(begin)
+			neededBegin := bc.stampingHeader.Height - chain.config.B
+			neededEnd := begin - 1 - tailLength
 			if err = chain.syncAllHeaders(peer, neededBegin, neededEnd); err != nil {
 				// TODO: switch to full node
 				archive := chain.getArchivePeer()
 				if err = chain.syncAllHeaders(archive, neededBegin, neededEnd); err != nil {
+					/*fmt.Printf("syncAllHeaders, peer:%s, begin:end=[%d, %d] [%d, %d], proof:%d, tailLength:%d\n",
+					peer.name, begin, end, neededBegin, neededEnd, bc.stampingHeader.Height-chain.config.B, tailLength)*/
 					return
 				}
-				return
 			}
 		}
 
-		err = chain.addStampingCertificateWithHeader(breadcrumb.stampingHeader, breadcrumb.stampingCertificate)
+		err = chain.addStampingCertificateWithHeader(bc.stampingHeader, bc.stampingCertificate)
 		if err != nil {
 			return
 		}
 
-		for _, tailHeader := range breadcrumb.tail {
+		for _, tailHeader := range bc.tail {
 			err = chain.addHeader(tailHeader)
 			if err != nil {
 				return
@@ -746,10 +751,10 @@ func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegi
 		}
 
 		nextBegin = chain.currentHeight + 1
-		nextEnd = (chain.currentHeight - uint64(len(breadcrumb.tail))) + chain.config.B
+		nextEnd = (chain.currentHeight - uint64(len(bc.tail))) + chain.config.B
 	} else {
-		for i, h := range breadcrumb.forwardHeader {
-			fc := breadcrumb.forwardFinalCertificate[i]
+		for i, h := range bc.forwardHeader {
+			fc := bc.forwardFinalCertificate[i]
 			err = chain.addBlock(h, fc)
 			if err != nil {
 				return
@@ -832,14 +837,15 @@ func (chain *Chain) sync(peer *Chain) error {
 	for begin, end := chain.scStatus.Candidate+1, chain.scStatus.Candidate+chain.config.B; chain.currentHeight < peer.currentHeight; {
 		if chain.troubleMaker != nil && chain.troubleMaker.Trouble() {
 			peer = chain.getPeer()
-			fmt.Printf("peer changed\n")
+			fmt.Printf("peer changed, [%d, %d]\n", begin, end)
 		}
 
+		//fmt.Printf("process begin:[%d, %d]\n", begin, end)
 		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {
 			return fmt.Errorf("synchronize breadcrumb in range[%d,%d] failed: %v", begin, end, err)
 		}
-
+		//fmt.Printf("process end:[%d, %d]\n", nextBegin, nextEnd)
 		begin, end = nextBegin, nextEnd
 	}
 
