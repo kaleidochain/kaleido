@@ -439,10 +439,77 @@ func TestMultiChainAllSameSync(t *testing.T) {
 	other.AddArchivePeer(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(10))
-	if err := other.Sync(); err != nil {
+	if err := other.Sync(); err != nil || other.currentHeight != b.currentHeight {
 		b.Print()
 		fmt.Println("---------------------------------after-----------------------------------------------------")
 		other.Print()
-		t.Fatalf("sync error, err:%s", err)
+		t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, b.currentHeight, err)
+	}
+}
+
+func TestMultiChain2Same1differentSync(t *testing.T) {
+	rand.Seed(1)
+
+	maxHeight := uint64(2000)
+	config := &Config{
+		B:                  100,
+		FailureProbability: 65,
+	}
+
+	archive := buildSpecialChain(t, config.B, maxHeight, nil)
+
+	chain := NewChain(config)
+	buildChainConcurrency(t, config, chain, 1, maxHeight, randomStampingMaker(config.FailureProbability))
+	b, c, _ := ensureSyncOk(t, chain)
+	d := NewChain(config)
+	buildChainConcurrency(t, config, d, 1, maxHeight, randomStampingMaker(config.FailureProbability))
+
+	other := NewChain(config)
+	other.AddPeer(b)
+	other.AddPeer(c)
+	other.AddPeer(d)
+	other.AddArchivePeer(archive)
+
+	other.SetTroubleMaker(RandomTroubleMaker(10))
+	if err := other.Sync(); err != nil || other.currentHeight != b.currentHeight {
+		b.Print()
+		fmt.Println("---------------------------------after-----------------------------------------------------")
+		other.Print()
+		t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, b.currentHeight, err)
+	}
+}
+
+func TestMultiChain3differentSync(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+
+	maxHeight := uint64(2000)
+	config := &Config{
+		B:                  100,
+		FailureProbability: 65,
+	}
+
+	archive := buildSpecialChain(t, config.B, maxHeight, nil)
+
+	chains := make(MultiChainWrapper, 3)
+	for i := range chains {
+		chains[i] = NewChain(config)
+	}
+
+	buildChainConcurrency(t, config, chains, 1, maxHeight, randomStampingMaker(config.FailureProbability))
+
+	other := NewChain(config)
+	for i := range chains {
+		other.AddPeer(chains[i])
+	}
+	other.AddArchivePeer(archive)
+
+	other.SetTroubleMaker(RandomTroubleMaker(10))
+	if err := other.Sync(); err != nil || other.currentHeight != chains[0].currentHeight {
+		for i := range chains {
+			chains[i].Print()
+		}
+		fmt.Println("---------------------------------after-----------------------------------------------------")
+		other.Print()
+		t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, chains[0].currentHeight, err)
 	}
 }
