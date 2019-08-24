@@ -417,7 +417,7 @@ func TestBuildMultiChain(t *testing.T) {
 	}
 }
 
-func TestMultiChainAllSameSync(t *testing.T) {
+func TestSyncAllSameMultiChain(t *testing.T) {
 	rand.Seed(1)
 
 	maxHeight := uint64(2000)
@@ -447,7 +447,7 @@ func TestMultiChainAllSameSync(t *testing.T) {
 	}
 }
 
-func TestMultiChain2Same1differentSync(t *testing.T) {
+func TestSnyc2Same1DifferentMultiChain(t *testing.T) {
 	rand.Seed(1)
 
 	maxHeight := uint64(2000)
@@ -479,7 +479,7 @@ func TestMultiChain2Same1differentSync(t *testing.T) {
 	}
 }
 
-func TestMultiChain3differentSync(t *testing.T) {
+func TestSync3DifferentMultiChain(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 
 	maxHeight := uint64(2000)
