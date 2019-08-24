@@ -54,6 +54,18 @@ func (c Config) InitialStampingStatus() SCStatus {
 	}
 }
 
+type TroubleMaker interface {
+	Trouble() bool
+}
+
+var ErrRandomTrouble = fmt.Errorf("random trouble hit")
+
+type RandomTroubleMaker int
+
+func (r RandomTroubleMaker) Trouble() bool {
+	return rand.Intn(100) <= int(r)
+}
+
 type Header struct {
 	Height     uint64
 	ParentHash common.Hash
@@ -149,7 +161,9 @@ type Chain struct {
 	currentHeight uint64
 	scStatus      SCStatus
 
-	peers []*Chain
+	peers        []*Chain
+	archive      *Chain
+	troubleMaker TroubleMaker
 }
 
 func NewChain(config *Config) *Chain {
@@ -165,12 +179,23 @@ func NewChain(config *Config) *Chain {
 	return chain
 }
 
+func (chain *Chain) SetTroubleMaker(t TroubleMaker) {
+	chain.troubleMaker = t
+}
+
 func (chain *Chain) AddPeer(peer *Chain) {
 	chain.peers = append(chain.peers, peer)
 }
 
+func (chain *Chain) AddArchivePeer(archivePeer *Chain) {
+	chain.archive = archivePeer
+}
+
 func (chain *Chain) getPeer() *Chain {
 	return chain.peers[rand.Intn(len(chain.peers))]
+}
+func (chain *Chain) getArchivePeer() *Chain {
+	return chain.archive
 }
 
 func (chain *Chain) FinalCertificate(height uint64) *FinalCertificate {
@@ -574,6 +599,10 @@ func (chain *Chain) forwardSyncRangeByHeaderAndFinalCertificate(peer *Chain, sta
 			continue
 		}
 
+		if chain.troubleMaker != nil && chain.troubleMaker.Trouble() {
+			peer = chain.getPeer()
+		}
+
 		header, fc := peer.HeaderAndFinalCertificate(height)
 		if header == nil || fc == nil {
 			return fmt.Errorf("peer has no header or fc at height(%d)", height)
@@ -611,6 +640,7 @@ func (chain *Chain) backwardSyncRangeOnlyByHeader(peer *Chain, start, end uint64
 
 	return nil
 }
+
 func (chain *Chain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, error) {
 	bc := &breadcrumb{}
 	for height := end; height >= begin; height-- {
@@ -695,6 +725,10 @@ func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegi
 			neededEnd := end - 1 - tailLength
 			if err = chain.syncAllHeaders(peer, neededBegin, neededEnd); err != nil {
 				// TODO: switch to full node
+				archive := chain.getArchivePeer()
+				if err = chain.syncAllHeaders(archive, neededBegin, neededEnd); err != nil {
+					return
+				}
 				return
 			}
 		}
@@ -760,7 +794,10 @@ func (chain *Chain) Sync() error {
 	defer chain.mutexChain.Unlock()
 
 	peer := chain.getPeer()
+	return chain.sync(peer)
+}
 
+func (chain *Chain) sync(peer *Chain) error {
 	if !chain.canSynchronize(peer) {
 		return fmt.Errorf("cannot synchronize from this chain")
 	}
@@ -793,6 +830,11 @@ func (chain *Chain) Sync() error {
 
 	// C+1 - peer.currentHeight
 	for begin, end := chain.scStatus.Candidate+1, chain.scStatus.Candidate+chain.config.B; chain.currentHeight < peer.currentHeight; {
+		if chain.troubleMaker != nil && chain.troubleMaker.Trouble() {
+			peer = chain.getPeer()
+			fmt.Printf("peer changed\n")
+		}
+
 		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {
 			return fmt.Errorf("synchronize breadcrumb in range[%d,%d] failed: %v", begin, end, err)
