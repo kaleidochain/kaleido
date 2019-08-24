@@ -416,3 +416,33 @@ func TestBuildMultiChain(t *testing.T) {
 		c.PrintProperty()
 	}
 }
+
+func TestMultiChainAllSameSync(t *testing.T) {
+	rand.Seed(1)
+
+	maxHeight := uint64(2000)
+	config := &Config{
+		B:                  100,
+		FailureProbability: 65,
+	}
+
+	archive := buildSpecialChain(t, config.B, maxHeight, nil)
+
+	chain := NewChain(config)
+	buildChainConcurrency(t, config, chain, 1, maxHeight, randomStampingMaker(config.FailureProbability))
+	b, c, d := ensureSyncOk(t, chain)
+
+	other := NewChain(config)
+	other.AddPeer(b)
+	other.AddPeer(c)
+	other.AddPeer(d)
+	other.AddArchivePeer(archive)
+
+	other.SetTroubleMaker(RandomTroubleMaker(10))
+	if err := other.Sync(); err != nil {
+		b.Print()
+		fmt.Println("---------------------------------after-----------------------------------------------------")
+		other.Print()
+		t.Fatalf("sync error, err:%s", err)
+	}
+}
