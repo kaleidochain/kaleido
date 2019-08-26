@@ -1,10 +1,13 @@
 package stamping
 
 import (
+	"crypto/sha512"
 	"fmt"
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/kaleidochain/kaleido/common"
 )
 
 type StampingMaker interface {
@@ -659,6 +662,66 @@ func TestSync3DifferentMultiChainWithContinueGrowAndConfigHeight(t *testing.T) {
 		FailureProbability: 65,
 		BaseHeight:         834,
 	}
+
+	archive := buildSpecialChain(t, config.B, finalMaxHeight, nil)
+
+	chains := make(MultiChainWrapper, 3)
+	for i := range chains {
+		chains[i] = NewChain(config)
+	}
+
+	buildChainConcurrency(t, config, chains, 1, maxHeight, randomStampingMaker(config.FailureProbability))
+
+	other := NewChain(config)
+	for i := range chains {
+		other.AddPeer(chains[i])
+	}
+	other.AddArchivePeer(archive)
+
+	other.SetTroubleMaker(RandomTroubleMaker(30))
+	hasGrowUp := false
+	for {
+		err := other.Sync()
+		if err == nil {
+			for i := range chains {
+				chains[i].Print()
+			}
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			other.Print()
+			return
+		}
+
+		if err == ErrRandomTrouble {
+			if !hasGrowUp {
+				buildChainConcurrency(t, config, chains, maxHeight, finalMaxHeight, randomStampingMaker(config.FailureProbability))
+				hasGrowUp = true
+			}
+			continue
+		}
+
+		if err != nil || other.currentHeight != chains[0].currentHeight {
+			for i := range chains {
+				chains[i].Print()
+			}
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			other.Print()
+			t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, chains[0].currentHeight, err)
+		}
+	}
+}
+
+func TestSync3DifferentMultiChainWithContinueGrowAndConfigHash(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+
+	maxHeight := uint64(2000)
+	finalMaxHeight := uint64(2500)
+	config := &Config{
+		B:                  100,
+		FailureProbability: 65,
+		BaseHeight:         834,
+	}
+	bytes := common.Uint64ToHash(config.BaseHeight)
+	config.BaseHash = sha512.Sum512_256(bytes[:])
 
 	archive := buildSpecialChain(t, config.B, finalMaxHeight, nil)
 
