@@ -603,7 +603,7 @@ func (chain *Chain) forwardSyncRangeByHeaderAndFinalCertificate(peer *Chain, sta
 		}
 
 		if chain.troubleMaker != nil && chain.troubleMaker.Trouble() {
-			peer = chain.getPeer()
+			return ErrRandomTrouble
 		}
 
 		header, fc := peer.HeaderAndFinalCertificate(height)
@@ -828,6 +828,9 @@ func (chain *Chain) sync(peer *Chain) error {
 	baseHeight := chain.config.BaseHeight
 	if start, end := baseHeight+1, baseHeight+chain.config.B; chain.currentHeight < end && chain.currentHeight < peer.currentHeight {
 		err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, start, end)
+		if err == ErrRandomTrouble {
+			return ErrRandomTrouble
+		}
 		if err != nil {
 			return fmt.Errorf("forward synchronize the first b blocks failed: %v", err)
 		}
@@ -836,8 +839,8 @@ func (chain *Chain) sync(peer *Chain) error {
 	// C+1 - peer.currentHeight
 	for begin, end := chain.scStatus.Candidate+1, chain.scStatus.Candidate+chain.config.B; chain.currentHeight < peer.currentHeight; {
 		if chain.troubleMaker != nil && chain.troubleMaker.Trouble() {
-			peer = chain.getPeer()
 			fmt.Printf("peer changed, [%d, %d]\n", begin, end)
+			return ErrRandomTrouble
 		}
 
 		//fmt.Printf("process begin:[%d, %d]\n", begin, end)
