@@ -459,7 +459,7 @@ func TestSyncAllSameMultiChain(t *testing.T) {
 	}
 }
 
-func TestSnyc2Same1DifferentMultiChain(t *testing.T) {
+func TestSync2Same1DifferentMultiChain(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 
 	maxHeight := uint64(2000)
@@ -536,6 +536,108 @@ func TestSync3DifferentMultiChain(t *testing.T) {
 		}
 
 		if err == ErrRandomTrouble {
+			continue
+		}
+
+		if err != nil || other.currentHeight != chains[0].currentHeight {
+			for i := range chains {
+				chains[i].Print()
+			}
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			other.Print()
+			t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, chains[0].currentHeight, err)
+		}
+	}
+}
+
+func TestSyncAllSameMultiChainAndContinueGrow(t *testing.T) {
+	rand.Seed(1)
+
+	maxHeight := uint64(2000)
+	finalMaxHeight := uint64(2500)
+	config := &Config{
+		B:                  100,
+		FailureProbability: 65,
+	}
+
+	archive := buildSpecialChain(t, config.B, finalMaxHeight, nil)
+
+	chain := NewChain(config)
+	buildChainConcurrency(t, config, chain, 1, maxHeight, randomStampingMaker(config.FailureProbability))
+	b, c, d := ensureSyncOk(t, chain)
+
+	other := NewChain(config)
+	other.AddPeer(b)
+	other.AddPeer(c)
+	other.AddPeer(d)
+	other.AddArchivePeer(archive)
+
+	other.SetTroubleMaker(RandomTroubleMaker(10))
+	for {
+		err := other.Sync()
+		if err == nil {
+			other.Print()
+			return
+		}
+
+		if err == ErrRandomTrouble {
+			buildChainConcurrency(t, config, b, maxHeight, finalMaxHeight, randomStampingMaker(config.FailureProbability))
+
+			continue
+		}
+
+		if err != nil || other.currentHeight != b.currentHeight {
+			b.Print()
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			other.Print()
+			t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, b.currentHeight, err)
+		}
+	}
+}
+
+func TestSync3DifferentMultiChainWithContinueGrow(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+
+	maxHeight := uint64(2000)
+	finalMaxHeight := uint64(2500)
+	config := &Config{
+		B:                  100,
+		FailureProbability: 65,
+	}
+
+	archive := buildSpecialChain(t, config.B, finalMaxHeight, nil)
+
+	chains := make(MultiChainWrapper, 3)
+	for i := range chains {
+		chains[i] = NewChain(config)
+	}
+
+	buildChainConcurrency(t, config, chains, 1, maxHeight, randomStampingMaker(config.FailureProbability))
+
+	other := NewChain(config)
+	for i := range chains {
+		other.AddPeer(chains[i])
+	}
+	other.AddArchivePeer(archive)
+
+	other.SetTroubleMaker(RandomTroubleMaker(10))
+	hasGrowUp := false
+	for {
+		err := other.Sync()
+		if err == nil {
+			for i := range chains {
+				chains[i].Print()
+			}
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			other.Print()
+			return
+		}
+
+		if err == ErrRandomTrouble {
+			if !hasGrowUp {
+				buildChainConcurrency(t, config, chains, maxHeight, finalMaxHeight, randomStampingMaker(config.FailureProbability))
+				hasGrowUp = true
+			}
 			continue
 		}
 
