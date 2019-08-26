@@ -418,7 +418,7 @@ func TestBuildMultiChain(t *testing.T) {
 }
 
 func TestSyncAllSameMultiChain(t *testing.T) {
-	rand.Seed(1)
+	rand.Seed(time.Now().UnixNano())
 
 	maxHeight := uint64(2000)
 	config := &Config{
@@ -439,16 +439,28 @@ func TestSyncAllSameMultiChain(t *testing.T) {
 	other.AddArchivePeer(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(10))
-	if err := other.Sync(); err != nil || other.currentHeight != b.currentHeight {
-		b.Print()
-		fmt.Println("---------------------------------after-----------------------------------------------------")
-		other.Print()
-		t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, b.currentHeight, err)
+	for {
+		err := other.Sync()
+		if err == nil {
+			other.Print()
+			return
+		}
+
+		if err == ErrRandomTrouble {
+			continue
+		}
+
+		if err != nil || other.currentHeight != b.currentHeight {
+			b.Print()
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			other.Print()
+			t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, b.currentHeight, err)
+		}
 	}
 }
 
 func TestSnyc2Same1DifferentMultiChain(t *testing.T) {
-	rand.Seed(1)
+	rand.Seed(time.Now().UnixNano())
 
 	maxHeight := uint64(2000)
 	config := &Config{
@@ -471,11 +483,23 @@ func TestSnyc2Same1DifferentMultiChain(t *testing.T) {
 	other.AddArchivePeer(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(10))
-	if err := other.Sync(); err != nil || other.currentHeight != b.currentHeight {
-		b.Print()
-		fmt.Println("---------------------------------after-----------------------------------------------------")
-		other.Print()
-		t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, b.currentHeight, err)
+	for {
+		err := other.Sync()
+		if err == nil {
+			other.Print()
+			return
+		}
+
+		if err == ErrRandomTrouble {
+			continue
+		}
+
+		if err != nil || other.currentHeight != b.currentHeight {
+			b.Print()
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			other.Print()
+			t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, b.currentHeight, err)
+		}
 	}
 }
 
@@ -504,12 +528,24 @@ func TestSync3DifferentMultiChain(t *testing.T) {
 	other.AddArchivePeer(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(10))
-	if err := other.Sync(); err != nil || other.currentHeight != chains[0].currentHeight {
-		for i := range chains {
-			chains[i].Print()
+	for {
+		err := other.Sync()
+		if err == nil {
+			other.Print()
+			return
 		}
-		fmt.Println("---------------------------------after-----------------------------------------------------")
-		other.Print()
-		t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, chains[0].currentHeight, err)
+
+		if err == ErrRandomTrouble {
+			continue
+		}
+
+		if err != nil || other.currentHeight != chains[0].currentHeight {
+			for i := range chains {
+				chains[i].Print()
+			}
+			fmt.Println("---------------------------------after-----------------------------------------------------")
+			other.Print()
+			t.Fatalf("sync error, my height:%d, other height:%d, err:%s", other.currentHeight, chains[0].currentHeight, err)
+		}
 	}
 }
