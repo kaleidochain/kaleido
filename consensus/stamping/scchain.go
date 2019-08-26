@@ -418,8 +418,17 @@ func (chain *Chain) deleteFC(start, end uint64) int {
 
 func (chain *Chain) freezeProof() {
 	start := MaxUint64(chain.scStatus.Fz+1, chain.scStatus.Proof-chain.config.B+1)
+	headerEnd := MinUint64(chain.scStatus.Candidate-chain.config.B, chain.scStatus.Proof)
 	end := chain.scStatus.Proof
-	for height := start; height < end; height++ {
+
+	//trim the tail of P to keep its length minimal
+	for height := start; height < headerEnd; height++ {
+		delete(chain.scChain, height)
+		delete(chain.headerChain, height)
+	}
+
+	// delete sc from the minimal tail
+	for height := headerEnd; height < end; height++ {
 		delete(chain.scChain, height)
 	}
 
