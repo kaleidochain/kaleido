@@ -821,6 +821,9 @@ func (chain *Chain) sync(peer *Chain) error {
 		if common.EmptyHash(chain.config.BaseHash) {
 			// sync [1, Base] to get BaseHeader
 			err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, 1, chain.config.BaseHeight)
+			if err == ErrRandomTrouble {
+				return ErrRandomTrouble
+			}
 			if err != nil {
 				return fmt.Errorf("forward synchronize [1, Base] failed: %v", err)
 			}
