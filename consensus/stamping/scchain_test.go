@@ -576,13 +576,10 @@ func TestSyncAllSameMultiChainAndContinueGrow(t *testing.T) {
 	for {
 		err := other.Sync()
 		if err == nil {
-			other.Print()
 			return
 		}
 
 		if err == ErrRandomTrouble {
-			buildChainConcurrency(t, config, b, maxHeight, finalMaxHeight, randomStampingMaker(config.FailureProbability))
-
 			continue
 		}
 
