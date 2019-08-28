@@ -769,3 +769,56 @@ func TestSync3DifferentMultiChainWithContinueGrowAndConfigHash(t *testing.T) {
 		}
 	}
 }
+
+func TestChainGossip(t *testing.T) {
+	rand.Seed(1)
+
+	maxHeight := uint64(200)
+	configs := []*Config{
+		{
+			B:                  20,
+			FailureProbability: 65,
+			StampingThreshold:  100,
+			Address:            common.HexToAddress("0x1000000000000000000000000000000000000001"),
+		},
+		{
+			B:                  20,
+			FailureProbability: 65,
+			StampingThreshold:  100,
+			Address:            common.HexToAddress("0x2000000000000000000000000000000000000002"),
+		},
+		{
+			B:                  20,
+			FailureProbability: 65,
+			StampingThreshold:  100,
+			Address:            common.HexToAddress("0x3000000000000000000000000000000000000003"),
+		},
+	}
+
+	chains := make(MultiChainWrapper, 3)
+	for i := range chains {
+		chains[i] = NewChain(configs[i])
+		chains[i].Start()
+	}
+
+	buildChainConcurrency(t, configs[0], chains, 1, maxHeight, randomStampingMaker(configs[0].FailureProbability))
+
+	chains[0].AddPeer(chains[1])
+	chains[0].AddPeer(chains[2])
+	chains[1].AddPeer(chains[0])
+	chains[1].AddPeer(chains[2])
+	chains[2].AddPeer(chains[0])
+	chains[2].AddPeer(chains[1])
+
+	go func() {
+		for {
+			for i := range chains {
+				chains[i].Print()
+			}
+
+			time.Sleep(60 * time.Second)
+		}
+	}()
+
+	time.Sleep(50 * 60 * time.Second)
+}
