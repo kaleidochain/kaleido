@@ -210,8 +210,8 @@ func NewNode(header *Header) *Node {
 }
 
 const msgChanSize = 4096
-const checkNewSCInterval = 60 * time.Second
-const stampingVoteCandidateTerm = 60 * time.Second
+const checkNewSCInterval = 30 * time.Second
+const stampingVoteCandidateTerm = 30
 
 type StatusMsg struct {
 	SCStatus
@@ -239,6 +239,7 @@ type Chain struct {
 	archive      *Chain
 	troubleMaker TroubleMaker
 
+	messageChan                chan message
 	stampingMessageChan        chan message
 	buildingStampingVoteWindow map[uint64]*StampingVotes
 	checkNewInterval           uint64
@@ -254,6 +255,7 @@ func NewChain(config *Config) *Chain {
 		scStatus:    config.InitialStampingStatus(),
 	}
 	chain.headerChain[0] = genesisHeader
+	chain.messageChan = make(chan message, msgChanSize)
 	chain.stampingMessageChan = make(chan message, msgChanSize)
 	chain.buildingStampingVoteWindow = make(map[uint64]*StampingVotes)
 	chain.checkNewTicker = time.NewTicker(checkNewSCInterval)
@@ -268,6 +270,8 @@ func (chain *Chain) SetTroubleMaker(t TroubleMaker) {
 func (chain *Chain) AddPeer(peer *Chain) {
 	peer.name = fmt.Sprintf("%d", len(chain.peers))
 	chain.peers = append(chain.peers, peer)
+
+	go chain.gossipData(peer)
 }
 
 func (chain *Chain) AddArchivePeer(archivePeer *Chain) {
@@ -541,6 +545,7 @@ func (chain *Chain) Print() {
 
 	count := chain.printRange(1, chain.currentHeight+1)
 
+	fmt.Printf("Miner=%s\n", chain.config.Address.String())
 	fmt.Printf("Status: Fz=%d, Proof=%d, Candidate=%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
 	fmt.Printf("MaxHeight=%d, realLength=%d, percent=%.2f%%\n", chain.currentHeight, count, float64(count*10000/chain.currentHeight)/100)
 }
@@ -914,18 +919,35 @@ func (chain *Chain) run() {
 					panic(fmt.Sprintf("AddBlock failed, height=%d, err=%v", newHeight, err))
 				}
 
-				vote := NewStampingVote(newHeight, chain.config.Address, uint64(rand.Int63n(int64(chain.config.StampingThreshold))))
+				weight := uint64(rand.Int63n(int64(chain.config.StampingThreshold))) + 30
+				vote := NewStampingVote(newHeight, chain.config.Address, weight)
+
+				chain.sendToMessageChan(message{
+					code: StampingVoteMsg,
+					data: vote,
+					from: "me"})
 
 				if err := chain.broadcastMessage(message{
 					code: StampingVoteMsg,
-					data: &vote,
-					from: "",
+					data: vote,
+					from: chain.config.Address.String(),
 				}); err != nil {
 					fmt.Printf("broadcast err:%s\n", err)
 				}
 			}
 		}
 	}()
+}
+
+func (chain *Chain) sendToMessageChan(msg message) {
+	select {
+	case chain.stampingMessageChan <- msg:
+		fmt.Printf("miner:%s, len(chan):%d\n", chain.config.Address.String(), len(chain.stampingMessageChan))
+		return
+	default:
+		fmt.Printf("message chan full, size:%d\n", len(chain.stampingMessageChan))
+		return
+	}
 }
 
 func (chain *Chain) broadcastMessage(msg message) error {
@@ -937,13 +959,13 @@ func (chain *Chain) broadcastMessage(msg message) error {
 }
 
 func (chain *Chain) SendNewSCStatus(msg message) {
-	select {
-	case chain.stampingMessageChan <- msg:
-		return
-	default:
-		fmt.Printf("message chan full, size:%d", len(chain.stampingMessageChan))
-		return
-	}
+	chain.sendToMessageChan(msg)
+}
+
+func (chain *Chain) Start() {
+	chain.run()
+
+	go chain.handleMsg()
 }
 
 func (chain *Chain) handleMsg() {
@@ -952,7 +974,6 @@ func (chain *Chain) handleMsg() {
 		case msg := <-chain.stampingMessageChan:
 			switch msg.code {
 			case StampingStatusMsg:
-
 			case StampingVoteMsg:
 				vote := msg.data.(*StampingVote)
 				if err := chain.handleStampingVote(vote); err != nil {
@@ -970,7 +991,8 @@ func (chain *Chain) handleMsg() {
 func (chain *Chain) handleStampingVote(vote *StampingVote) error {
 	// verify
 
-	if vote.Height <= chain.scStatus.Candidate {
+	scStatus := chain.ChainStatus()
+	if vote.Height <= scStatus.Candidate {
 		return fmt.Errorf("recv low sc vote, drop it, sc:%v", vote)
 	}
 
@@ -984,11 +1006,15 @@ func (chain *Chain) handleStampingVote(vote *StampingVote) error {
 }
 
 func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
 	maxEnoughVotesHeight := uint64(0)
 
 	var enoughHeights []uint64
 	now := time.Now().Unix()
 	for height, votes := range chain.buildingStampingVoteWindow {
+		fmt.Printf("check enough, miner:%s, height:%d, now:%d, votes:%v\n", chain.config.Address.String(), height, now, votes)
 		if votes.weight >= chain.config.StampingThreshold && (now-votes.ts >= int64(stampingVoteCandidateTerm)) {
 			if maxEnoughVotesHeight < height {
 				maxEnoughVotesHeight = height
@@ -1022,6 +1048,13 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 			if err := chain.addStampingCertificate(sc); err != nil {
 				return fmt.Errorf("add sc(%d) failed, err:%s\n", height, err)
 			}
+			fmt.Printf("add sc(%d) done, miner:%s\n", sc.Height, chain.config.Address.String())
+		}
+
+		for height := range chain.buildingStampingVoteWindow {
+			if height <= maxEnoughVotesHeight {
+				delete(chain.buildingStampingVoteWindow, height)
+			}
 		}
 
 		statusMsg := StatusMsg{
@@ -1036,13 +1069,18 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 			fmt.Printf("broadcast status err:%s\n", err)
 		}
 	}
+	fmt.Printf("check enough miner:%s done, find max height:%d\n", chain.config.Address.String(), maxEnoughVotesHeight)
 	return nil
 }
 
 func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added, enough bool, err error) {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
 	votes, ok := chain.buildingStampingVoteWindow[vote.Height]
 	if !ok {
 		votes = NewStampingVotes()
+		chain.buildingStampingVoteWindow[vote.Height] = votes
 	}
 
 	if votes.hasVote(vote.Address) {
@@ -1064,11 +1102,15 @@ func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added
 		votes.setEnoughTs()
 	}
 
-	fmt.Printf("AddVoteAndCount OK Added:%v Enough:%v, (%d/%d), vote:%v", added, enough, votes.weight, threshold, vote)
+	fmt.Printf("AddVoteAndCount OK, miner:%s, Added:%v Enough:%v, (%d/%d), vote:%v\n",
+		chain.config.Address.String(), added, enough, votes.weight, threshold, vote)
 	return
 }
 
 func (chain *Chain) PickAndSend(votes []*StampingVote) error {
+	if len(votes) == 0 {
+		return fmt.Errorf("has no votes")
+	}
 	vote := votes[rand.Intn(len(votes))]
 
 	chain.SendNewSCStatus(message{
@@ -1096,7 +1138,7 @@ func (chain *Chain) gossipData(peer *Chain) {
 			continue
 		}
 
-		sc := chain.stampingCertificate(scStatus.Candidate)
+		sc := chain.StampingCertificate(scStatus.Candidate)
 		if sc == nil {
 			fmt.Printf("sc(%d) not exists\n", scStatus.Candidate)
 			needSleep = true
@@ -1104,7 +1146,7 @@ func (chain *Chain) gossipData(peer *Chain) {
 		}
 
 		if err := peer.PickAndSend(sc.Votes); err != nil {
-			fmt.Printf("sc(%d) not exists\n", scStatus.Candidate)
+			//fmt.Printf("send sc(%d) error, err:%s\n", scStatus.Candidate, err)
 			needSleep = true
 			continue
 		}
@@ -1473,6 +1515,7 @@ func EqualStampingCertificate(a, b *StampingCertificate) bool {
 	}
 
 	if a != nil && b != nil {
+		// TODO: compare votes?
 		return a.Height == b.Height && a.Seed == b.Seed && a.Root == b.Root
 	}
 
