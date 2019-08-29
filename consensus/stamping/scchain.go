@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/kaleidochain/kaleido/common"
 )
 
@@ -71,17 +72,6 @@ func (r RandomTroubleMaker) Trouble() bool {
 	return rand.Intn(100) <= int(r)
 }
 
-type message struct {
-	code uint64
-	data interface{}
-	from string
-}
-
-const (
-	StampingStatusMsg = 0x00
-	StampingVoteMsg   = 0x01
-)
-
 type Header struct {
 	Height     uint64
 	ParentHash common.Hash
@@ -102,122 +92,6 @@ func NewHeader(height uint64, parent *Header) *Header {
 	}
 }
 
-// UserSet
-type UserSet struct {
-	exists map[string]bool
-}
-
-func NewUserSet() *UserSet {
-	return &UserSet{
-		exists: make(map[string]bool),
-	}
-}
-
-func (us *UserSet) Has(user common.Address) bool {
-	return us.exists[user.Str()]
-}
-
-func (us *UserSet) Add(user common.Address) {
-	if !us.exists[user.Str()] {
-		us.exists[user.Str()] = true
-	}
-}
-
-type StampingVote struct {
-	Height  uint64
-	Address common.Address
-	Weight  uint64
-}
-
-func NewStampingVote(height uint64, address common.Address, weight uint64) *StampingVote {
-	return &StampingVote{
-		Height:  height,
-		Address: address,
-		Weight:  weight,
-	}
-}
-
-type StampingVotes struct {
-	votes  map[common.Address]*StampingVote
-	weight uint64
-	ts     int64
-}
-
-func (s *StampingVotes) hasVote(address common.Address) bool {
-	_, ok := s.votes[address]
-	return ok
-}
-
-func (s *StampingVotes) addVote(vote *StampingVote) {
-	s.votes[vote.Address] = vote
-}
-
-func (s *StampingVotes) setEnoughTs() {
-	s.ts = time.Now().Unix()
-}
-
-func NewStampingVotes() *StampingVotes {
-	return &StampingVotes{
-		votes: make(map[common.Address]*StampingVote),
-	}
-}
-
-type FinalCertificate struct {
-	Height     uint64
-	Hash       common.Hash
-	ParentSeed common.Hash
-	ParentRoot common.Hash
-}
-
-func NewFinalCertificate(header, parent *Header) *FinalCertificate {
-	return &FinalCertificate{
-		Height:     header.Height,
-		Hash:       header.Hash(),
-		ParentSeed: parent.Seed,
-		ParentRoot: parent.Root,
-	}
-}
-
-func (fc *FinalCertificate) Verify(header, parent *Header) bool {
-	return fc.Height == header.Height &&
-		fc.Hash == header.Hash() &&
-		fc.Height == parent.Height+1 &&
-		fc.ParentSeed == parent.Seed &&
-		fc.ParentRoot == parent.Root
-}
-
-type StampingCertificate struct {
-	Height uint64
-	Seed   common.Hash
-	Root   common.Hash
-	Votes  []*StampingVote
-}
-
-func NewStampingCertificateWithVotes(height uint64, proofHeader *Header) *StampingCertificate {
-	return &StampingCertificate{
-		Height: height,
-		Seed:   proofHeader.Seed,
-		Root:   proofHeader.Root,
-	}
-}
-
-func NewStampingCertificate(height uint64, proofHeader *Header, votes []*StampingVote) *StampingCertificate {
-	return &StampingCertificate{
-		Height: height,
-		Seed:   proofHeader.Seed,
-		Root:   proofHeader.Root,
-		Votes:  votes,
-	}
-}
-
-func (sc *StampingCertificate) Verify(config *Config, header, proofHeader *Header) bool {
-	return sc.Height > config.HeightB() &&
-		sc.Height == header.Height &&
-		header.Height == proofHeader.Height+config.B &&
-		sc.Seed == proofHeader.Seed &&
-		sc.Root == proofHeader.Root
-}
-
 type Node struct {
 	header              *Header
 	finalCertificate    *FinalCertificate
@@ -230,7 +104,6 @@ func NewNode(header *Header) *Node {
 	}
 }
 
-const msgChanSize = 4096
 const checkNewSCInterval = 30 * time.Second
 const stampingVoteCandidateTerm = 30
 const gossipMaxHeightDiff = 100
@@ -246,79 +119,6 @@ type SCStatus struct {
 	Fz        uint64
 }
 
-type HeightVoteSet struct {
-	userSet map[uint64]*UserSet
-	mutex   sync.RWMutex
-}
-
-func (h *HeightVoteSet) HasVote(vote *StampingVote) bool {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-
-	return h.hasVote(vote)
-}
-
-func (h *HeightVoteSet) hasVote(vote *StampingVote) bool {
-	if h.userSet == nil {
-		return false
-	}
-
-	if h.userSet[vote.Height] == nil {
-		return false
-	}
-
-	useSet := h.userSet[vote.Height]
-	return useSet.Has(vote.Address)
-}
-
-func (h *HeightVoteSet) SetHasVote(vote *StampingVote) {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
-	var userSet *UserSet
-	if h.userSet[vote.Height] == nil {
-		userSet = NewUserSet()
-		h.userSet[vote.Height] = userSet
-	} else {
-		userSet = h.userSet[vote.Height]
-	}
-
-	userSet.Add(vote.Address)
-}
-
-func (h *HeightVoteSet) RandomNotIn(votes []*StampingVote) *StampingVote {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-
-	var notInVotes []*StampingVote
-	for i := range votes {
-		if !h.hasVote(votes[i]) {
-			notInVotes = append(notInVotes, votes[i])
-		}
-	}
-
-	if len(notInVotes) > 0 {
-		return notInVotes[rand.Intn(len(notInVotes))]
-	}
-
-	return nil
-}
-
-func (h *HeightVoteSet) Remove(beginHeight, endHeight uint64) {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
-	for height := beginHeight; height < endHeight; height++ {
-		delete(h.userSet, height)
-	}
-}
-
-func NewHeightVoteSet() *HeightVoteSet {
-	return &HeightVoteSet{
-		userSet: make(map[uint64]*UserSet),
-	}
-}
-
 type Chain struct {
 	config      *Config
 	headerChain map[uint64]*Header
@@ -329,19 +129,20 @@ type Chain struct {
 	currentHeight uint64
 	scStatus      SCStatus
 
-	name         string
-	peers        []*Chain
+	name string
+
+	id           string
+	chains       []*Chain
 	archive      *Chain
 	troubleMaker TroubleMaker
 
 	messageChan                chan message
-	stampingMessageChan        chan message
 	buildingStampingVoteWindow map[uint64]*StampingVotes
 	checkNewInterval           uint64
 	checkNewTicker             *time.Ticker
 	counter                    *HeightVoteSet
-	peerSCStatus               SCStatus
-	peerHeight                 uint64
+
+	peers []*peer
 }
 
 func NewChain(config *Config) *Chain {
@@ -354,7 +155,6 @@ func NewChain(config *Config) *Chain {
 	}
 	chain.headerChain[0] = genesisHeader
 	chain.messageChan = make(chan message, msgChanSize)
-	chain.stampingMessageChan = make(chan message, msgChanSize)
 	chain.buildingStampingVoteWindow = make(map[uint64]*StampingVotes)
 	chain.checkNewTicker = time.NewTicker(checkNewSCInterval)
 	chain.counter = NewHeightVoteSet()
@@ -366,23 +166,35 @@ func (chain *Chain) SetTroubleMaker(t TroubleMaker) {
 	chain.troubleMaker = t
 }
 
-func (chain *Chain) AddPeer(peer *Chain) {
-	peer.name = fmt.Sprintf("%d", len(chain.peers))
+func (chain *Chain) SetName(name string) {
+	chain.name = name
+}
+
+func (chain *Chain) AddPeer(peer *peer) {
 	chain.peers = append(chain.peers, peer)
 
 	go chain.gossipVote(peer)
 }
 
-func (chain *Chain) AddArchivePeer(archivePeer *Chain) {
-	archivePeer.name = "archive"
+func (chain *Chain) AddPeerChain(peer *Chain) {
+	peer.id = fmt.Sprintf("%d", len(chain.chains))
+	chain.chains = append(chain.chains, peer)
+}
+
+func (chain *Chain) AddArchiveChain(archivePeer *Chain) {
+	archivePeer.id = "archive"
 	chain.archive = archivePeer
 }
 
 func (chain *Chain) getPeer() *Chain {
-	return chain.peers[rand.Intn(len(chain.peers))]
+	return chain.chains[rand.Intn(len(chain.chains))]
 }
 func (chain *Chain) getArchivePeer() *Chain {
 	return chain.archive
+}
+
+func (chain *Chain) Log() log.Logger {
+	return log.New("chain", chain.name)
 }
 
 func (chain *Chain) FinalCertificate(height uint64) *FinalCertificate {
@@ -785,6 +597,10 @@ func (chain *Chain) HeaderAndFinalCertificate(height uint64) (*Header, *FinalCer
 	return chain.header(height), chain.finalCertificate(height)
 }
 
+func (chain *Chain) StatusString() string {
+	return fmt.Sprintf("%d/%d/%d/%d", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate, chain.currentHeight)
+}
+
 func (chain *Chain) ChainStatus() StatusMsg {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
@@ -936,7 +752,7 @@ func (chain *Chain) syncNextBreadcrumb(peer *Chain, begin, end uint64) (nextBegi
 				archive := chain.getArchivePeer()
 				if err = chain.syncAllHeaders(archive, neededBegin, neededEnd); err != nil {
 					/*fmt.Printf("syncAllHeaders, peer:%s, begin:end=[%d, %d] [%d, %d], proof:%d, tailLength:%d\n",
-					peer.name, begin, end, neededBegin, neededEnd, bc.stampingHeader.Height-chain.config.B, tailLength)*/
+					peer.id, begin, end, neededBegin, neededEnd, bc.stampingHeader.Height-chain.config.B, tailLength)*/
 					return
 				}
 			}
@@ -1021,16 +837,18 @@ func (chain *Chain) AutoBuildSCVote() {
 				weight := uint64(rand.Int63n(int64(chain.config.StampingThreshold))) + 30
 				vote := NewStampingVote(newHeight, chain.config.Address, weight)
 
+				chain.Log().Trace("Timer SendSCVote", "Status", chain.StatusString(), "vote", vote.String())
+
 				chain.sendToMessageChan(message{
 					code: StampingVoteMsg,
 					data: vote,
-					from: "me",
+					from: chain.name,
 				})
 
 				if err := chain.broadcastMessage(message{
 					code: StampingVoteMsg,
 					data: vote,
-					from: chain.config.Address.String(),
+					from: chain.name,
 				}); err != nil {
 					fmt.Printf("broadcast err:%s\n", err)
 				}
@@ -1041,24 +859,26 @@ func (chain *Chain) AutoBuildSCVote() {
 
 func (chain *Chain) sendToMessageChan(msg message) {
 	select {
-	case chain.stampingMessageChan <- msg:
-		fmt.Printf("miner:%s, len(chan):%d\n", chain.config.Address.String(), len(chain.stampingMessageChan))
+	case chain.messageChan <- msg:
 		return
 	default:
-		fmt.Printf("message chan full, size:%d\n", len(chain.stampingMessageChan))
+		chain.Log().Error("message chan full", "size", len(chain.messageChan))
 		return
 	}
 }
 
 func (chain *Chain) broadcastMessage(msg message) error {
-	for _, peer := range chain.peers {
-		if msg.code == StampingVoteMsg {
-			if peer.counter.HasVote(msg.data.(*StampingVote)) {
-				continue
-			}
+	switch msg.code {
+	case StampingStatusMsg:
+		for _, peer := range chain.peers {
+			status := msg.data.(*StatusMsg)
+			peer.SendStatus(*status)
 		}
-
-		peer.SendMsgToPeer(msg)
+	case StampingVoteMsg:
+		for _, peer := range chain.peers {
+			vote := msg.data.(*StampingVote)
+			peer.SendSCVote(vote)
+		}
 	}
 
 	return nil
@@ -1072,20 +892,29 @@ func (chain *Chain) Start() {
 	go chain.handleMsg()
 }
 
+func sendToMessageChan(ch chan<- message, msg message) {
+	select {
+	case ch <- msg:
+		return
+	default:
+		log.Error("message chan full", "size", len(ch))
+		return
+	}
+}
+
+func (chain *Chain) OnReceive(code uint64, data interface{}, from string) {
+	sendToMessageChan(chain.messageChan, message{code, data, from})
+}
+
 func (chain *Chain) handleMsg() {
 	for {
 		select {
-		case msg := <-chain.stampingMessageChan:
+		case msg := <-chain.messageChan:
 			switch msg.code {
-			case StampingStatusMsg:
-				status := msg.data.(*StatusMsg)
-				if err := chain.handleStatusMsg(status); err != nil {
-					fmt.Printf("handle status failed, status:%v, err:%s\n", status, err)
-				}
 			case StampingVoteMsg:
 				vote := msg.data.(*StampingVote)
 				if err := chain.handleStampingVote(vote); err != nil {
-					fmt.Printf("handle vote failed, vote:%v, from:%s, err:%s\n", *vote, msg.from, err)
+					chain.Log().Error("handle vote failed", "vote", vote)
 				}
 			}
 		case <-chain.checkNewTicker.C:
@@ -1096,23 +925,8 @@ func (chain *Chain) handleMsg() {
 	}
 }
 
-func (chain *Chain) handleStatusMsg(status *StatusMsg) error {
-	if status.Candidate <= chain.peerSCStatus.Candidate {
-		return fmt.Errorf("new status.C is lower than old, new:%v, old:%v\n", *status, chain.peerSCStatus)
-	}
-	chain.counter.Remove(chain.peerSCStatus.Candidate, status.Candidate)
-	chain.updateStatus(status)
-
-	return nil
-}
-
 func (chain *Chain) handleStampingVote(vote *StampingVote) error {
 	// verify
-	chain.broadcastMessage(message{
-		code: StampingVoteMsg,
-		data: vote,
-		from: "",
-	})
 
 	scStatus := chain.ChainStatus()
 	if vote.Height <= scStatus.Candidate {
@@ -1128,14 +942,6 @@ func (chain *Chain) handleStampingVote(vote *StampingVote) error {
 	return nil
 }
 
-func (chain *Chain) updateStatus(status *StatusMsg) {
-	chain.mutexChain.Lock()
-	defer chain.mutexChain.Unlock()
-
-	chain.peerSCStatus = status.SCStatus
-	chain.peerHeight = status.Height
-}
-
 func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
@@ -1145,7 +951,7 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 	var enoughHeights []uint64
 	now := time.Now().Unix()
 	for height, votes := range chain.buildingStampingVoteWindow {
-		fmt.Printf("check enough, miner:%s, height:%d, now:%d, votes:%v\n", chain.config.Address.String(), height, now, votes)
+		chain.Log().Trace("check enough", "height", height, "now", now, "votes", votes)
 		if votes.weight >= chain.config.StampingThreshold && (now-votes.ts >= int64(stampingVoteCandidateTerm)) {
 			if maxEnoughVotesHeight < height {
 				maxEnoughVotesHeight = height
@@ -1179,7 +985,7 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 			if err := chain.addStampingCertificate(sc); err != nil {
 				return fmt.Errorf("add sc(%d) failed, err:%s\n", height, err)
 			}
-			fmt.Printf("add sc(%d) done, miner:%s\n", sc.Height, chain.config.Address.String())
+			chain.Log().Trace("add sc done", "height", height)
 		}
 
 		for height := range chain.buildingStampingVoteWindow {
@@ -1195,12 +1001,12 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 		if err := chain.broadcastMessage(message{
 			code: StampingStatusMsg,
 			data: &statusMsg,
-			from: "",
+			from: chain.name,
 		}); err != nil {
-			fmt.Printf("broadcast status err:%s\n", err)
+			chain.Log().Error("broadcast status", "err", err)
 		}
 	}
-	fmt.Printf("check enough miner:%s done, find max height:%d\n", chain.config.Address.String(), maxEnoughVotesHeight)
+	chain.Log().Trace("check enough done", "max height:%", maxEnoughVotesHeight)
 	return nil
 }
 
@@ -1242,27 +1048,7 @@ func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added
 	return
 }
 
-func (chain *Chain) PickAndSend(votes []*StampingVote) error {
-	if len(votes) == 0 {
-		return fmt.Errorf("has no votes")
-	}
-
-	vote := chain.counter.RandomNotIn(votes)
-	if vote == nil {
-		return fmt.Errorf("has no vote to be selected")
-	}
-	chain.counter.SetHasVote(vote)
-
-	chain.SendMsgToPeer(message{
-		code: StampingVoteMsg,
-		data: vote,
-		from: chain.config.Address.String(),
-	})
-
-	return nil
-}
-
-func (chain *Chain) gossipVote(peer *Chain) {
+func (chain *Chain) gossipVote(p *peer) {
 	needSleep := false
 	for {
 		if needSleep {
@@ -1271,7 +1057,7 @@ func (chain *Chain) gossipVote(peer *Chain) {
 		needSleep = false
 
 		scStatus := chain.ChainStatus()
-		peerScStatus := peer.ChainStatus()
+		peerScStatus := p.ChainStatus()
 
 		if scStatus.Candidate <= peerScStatus.Candidate {
 			needSleep = true
@@ -1282,20 +1068,18 @@ func (chain *Chain) gossipVote(peer *Chain) {
 		for height := beginHeight; height <= scStatus.Candidate; height++ {
 			sc := chain.StampingCertificate(height)
 			if sc == nil {
-				fmt.Printf("sc(%d) not exists\n", height)
+				chain.Log().Error("sc not exist", "height", height)
 				needSleep = true
 				continue
 			}
 
-			if err := peer.PickAndSend(sc.Votes); err == nil {
+			if err := p.PickAndSend(sc.Votes); err == nil {
 				needSleep = true
 
-				fmt.Printf("gossipVoteData peer is late on Height, send my(%s) sc to peer(%s), my.C:%d, peer.C:%d, selected:%d\n",
-					chain.config.Address.String(), peer.config.Address.String(), scStatus.Candidate, peerScStatus.Candidate, height)
+				p.Log().Info("gossipVoteData peer is late on Height", "chain", chain.name, "status", chain.StatusString(), "send", height)
 				break
 			} else {
-				fmt.Printf("gossipVoteData error, send my(%s) sc to peer(%s), my.C:%d, peer.C:%d, selected:%d, err:%s\n",
-					chain.config.Address.String(), peer.config.Address.String(), scStatus.Candidate, peerScStatus.Candidate, height, err)
+				p.Log().Info("gossipVoteData peer is late on Height, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
 				needSleep = true
 			}
 		}

@@ -137,7 +137,7 @@ func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *Cha
 
 func ensureSyncOk(t *testing.T, a *Chain) (b, c, d *Chain) {
 	b = NewChain(a.config)
-	b.AddPeer(a)
+	b.AddPeerChain(a)
 	if err := b.Sync(); err != nil {
 		a.Print()
 		fmt.Println("---------------------------------after-----------------------------------------------------")
@@ -146,7 +146,7 @@ func ensureSyncOk(t *testing.T, a *Chain) (b, c, d *Chain) {
 	}
 
 	c = NewChain(a.config)
-	c.AddPeer(b)
+	c.AddPeerChain(b)
 	if err := c.Sync(); err != nil {
 		t.Fatalf("sync error, err:%v", err)
 	}
@@ -436,10 +436,10 @@ func TestSyncAllSameMultiChain(t *testing.T) {
 	b, c, d := ensureSyncOk(t, chain)
 
 	other := NewChain(config)
-	other.AddPeer(b)
-	other.AddPeer(c)
-	other.AddPeer(d)
-	other.AddArchivePeer(archive)
+	other.AddPeerChain(b)
+	other.AddPeerChain(c)
+	other.AddPeerChain(d)
+	other.AddArchiveChain(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(10))
 	for {
@@ -480,10 +480,10 @@ func TestSync2Same1DifferentMultiChain(t *testing.T) {
 	buildChainConcurrency(t, config, d, 1, maxHeight, randomStampingMaker(config.FailureProbability))
 
 	other := NewChain(config)
-	other.AddPeer(b)
-	other.AddPeer(c)
-	other.AddPeer(d)
-	other.AddArchivePeer(archive)
+	other.AddPeerChain(b)
+	other.AddPeerChain(c)
+	other.AddPeerChain(d)
+	other.AddArchiveChain(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(10))
 	for {
@@ -526,9 +526,9 @@ func TestSync3DifferentMultiChain(t *testing.T) {
 
 	other := NewChain(config)
 	for i := range chains {
-		other.AddPeer(chains[i])
+		other.AddPeerChain(chains[i])
 	}
-	other.AddArchivePeer(archive)
+	other.AddArchiveChain(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(10))
 	for {
@@ -570,10 +570,10 @@ func TestSyncAllSameMultiChainAndContinueGrow(t *testing.T) {
 	b, c, d := ensureSyncOk(t, chain)
 
 	other := NewChain(config)
-	other.AddPeer(b)
-	other.AddPeer(c)
-	other.AddPeer(d)
-	other.AddArchivePeer(archive)
+	other.AddPeerChain(b)
+	other.AddPeerChain(c)
+	other.AddPeerChain(d)
+	other.AddArchiveChain(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(10))
 	for {
@@ -616,9 +616,9 @@ func TestSync3DifferentMultiChainWithContinueGrow(t *testing.T) {
 
 	other := NewChain(config)
 	for i := range chains {
-		other.AddPeer(chains[i])
+		other.AddPeerChain(chains[i])
 	}
-	other.AddArchivePeer(archive)
+	other.AddArchiveChain(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(10))
 	hasGrowUp := false
@@ -674,9 +674,9 @@ func TestSync3DifferentMultiChainWithContinueGrowAndConfigHeight(t *testing.T) {
 
 	other := NewChain(config)
 	for i := range chains {
-		other.AddPeer(chains[i])
+		other.AddPeerChain(chains[i])
 	}
-	other.AddArchivePeer(archive)
+	other.AddArchiveChain(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(30))
 	hasGrowUp := false
@@ -734,9 +734,9 @@ func TestSync3DifferentMultiChainWithContinueGrowAndConfigHash(t *testing.T) {
 
 	other := NewChain(config)
 	for i := range chains {
-		other.AddPeer(chains[i])
+		other.AddPeerChain(chains[i])
 	}
-	other.AddArchivePeer(archive)
+	other.AddArchiveChain(archive)
 
 	other.SetTroubleMaker(RandomTroubleMaker(30))
 	hasGrowUp := false
@@ -794,12 +794,12 @@ func TestChainSCVote(t *testing.T) {
 
 	buildChainConcurrency(t, configs[0], chains, 1, maxHeight, randomStampingMaker(configs[0].FailureProbability))
 
-	chains[0].AddPeer(chains[1])
-	chains[0].AddPeer(chains[2])
-	chains[1].AddPeer(chains[0])
-	chains[1].AddPeer(chains[2])
-	chains[2].AddPeer(chains[0])
-	chains[2].AddPeer(chains[1])
+	chains[0].AddPeerChain(chains[1])
+	chains[0].AddPeerChain(chains[2])
+	chains[1].AddPeerChain(chains[0])
+	chains[1].AddPeerChain(chains[2])
+	chains[2].AddPeerChain(chains[0])
+	chains[2].AddPeerChain(chains[1])
 
 	go func() {
 		for {
@@ -840,13 +840,13 @@ func TestChainGossip(t *testing.T) {
 
 	buildChainConcurrency(t, configs[0], chains, 1, maxHeight, randomStampingMaker(configs[0].FailureProbability))
 
-	chains[0].AddPeer(chains[1])
-	chains[0].AddPeer(chains[2])
-	chains[0].AddPeer(chains[3])
-	chains[1].AddPeer(chains[0])
-	chains[1].AddPeer(chains[2])
-	chains[2].AddPeer(chains[0])
-	chains[2].AddPeer(chains[1])
+	chains[0].AddPeerChain(chains[1])
+	chains[0].AddPeerChain(chains[2])
+	chains[0].AddPeerChain(chains[3])
+	chains[1].AddPeerChain(chains[0])
+	chains[1].AddPeerChain(chains[2])
+	chains[2].AddPeerChain(chains[0])
+	chains[2].AddPeerChain(chains[1])
 
 	go func() {
 		for {
