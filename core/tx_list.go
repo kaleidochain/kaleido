@@ -304,6 +304,7 @@ func (l *txList) Filter(stateDb *state.StateDB, costLimit *big.Int, gasLimit uin
 		if tx.GasLimit() == 0 {
 			err, _, _ := syscon.ValidatePayByContract(stateDb, tx.From(), tx)
 			if err != nil {
+				log.Trace("tx filter by contract", "tx", tx.Hash(), "gasPrice", tx.GasPrice(), "gasLimit", tx.GasLimit(), "err", err)
 				return true
 			}
 
