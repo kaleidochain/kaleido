@@ -175,6 +175,7 @@ func (chain *Chain) AddPeer(peer *peer) {
 	chain.peers = append(chain.peers, peer)
 
 	go chain.gossipVote(peer)
+	go peer.handleMsg()
 }
 
 func (chain *Chain) AddPeerChain(peer *Chain) {
@@ -1079,7 +1080,7 @@ func (chain *Chain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (sent boo
 }
 
 func (chain *Chain) pickBuildingSCVoteToPeer(begin, end uint64, p *peer) (sent bool) {
-	for height := begin; height <= end; height++ {
+	for height := begin + 1; height <= end; height++ {
 		votes := chain.buildingStampingVoteWindow[height]
 		if err := p.PickBuildingAndSend(votes); err == nil {
 			sent = true
@@ -1098,7 +1099,7 @@ func (chain *Chain) gossipVote(p *peer) {
 	needSleep := false
 	for {
 		if needSleep {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 		}
 		needSleep = false
 
@@ -1123,6 +1124,8 @@ func (chain *Chain) gossipVote(p *peer) {
 			needSleep = true
 			continue
 		}
+
+		needSleep = true
 	}
 }
 
