@@ -138,6 +138,7 @@ type Chain struct {
 
 	messageChan                chan message
 	buildingStampingVoteWindow map[uint64]*StampingVotes
+	maxVoteHeight              uint64
 	checkNewInterval           uint64
 	checkNewTicker             *time.Ticker
 	counter                    *HeightVoteSet
@@ -1006,7 +1007,7 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 			chain.Log().Error("broadcast status", "err", err)
 		}
 	}
-	chain.Log().Trace("check enough done", "max height:%", maxEnoughVotesHeight)
+	chain.Log().Trace("check enough done", "max height:", maxEnoughVotesHeight)
 	return nil
 }
 
@@ -1015,13 +1016,22 @@ func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added
 	defer chain.mutexChain.Unlock()
 
 	if vote.Height <= chain.scStatus.Candidate {
-		return false, false, fmt.Errorf("vote.height too low, height:%d, C:%d\n", vote.Height, chain.scStatus.Candidate)
+		return false, false, fmt.Errorf("vote.height too low, height:%d, C:%d\n",
+			vote.Height, chain.scStatus.Candidate)
+	}
+
+	if vote.Height > chain.currentHeight {
+		return false, false, fmt.Errorf("vote.height too high, height:%d, current:%d\n",
+			vote.Height, chain.currentHeight)
 	}
 
 	votes, ok := chain.buildingStampingVoteWindow[vote.Height]
 	if !ok {
 		votes = NewStampingVotes()
 		chain.buildingStampingVoteWindow[vote.Height] = votes
+	}
+	if chain.maxVoteHeight < vote.Height {
+		chain.maxVoteHeight = vote.Height
 	}
 
 	if votes.hasVote(vote.Address) {
@@ -1043,8 +1053,44 @@ func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added
 		votes.setEnoughTs()
 	}
 
-	fmt.Printf("AddVoteAndCount OK, miner:%s, Added:%v Enough:%v, (%d/%d), vote:%v\n",
-		chain.config.Address.String(), added, enough, votes.weight, threshold, vote)
+	chain.Log().Info("AddVoteAndCount OK", "miner", chain.config.Address.String(), "Added", added, "Enough", enough,
+		"Weight", fmt.Sprintf("(%d/%d)", votes.weight, threshold), "vote", vote)
+	return
+}
+
+func (chain *Chain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (sent bool) {
+	for height := begin; height <= end; height++ {
+		sc := chain.StampingCertificate(height)
+		if sc == nil {
+			chain.Log().Error("sc not exist", "height", height)
+			continue
+		}
+
+		if err := p.PickAndSend(sc.Votes); err == nil {
+			sent = true
+
+			p.Log().Info("gossipVoteData vote below C", "chain", chain.name, "status", chain.StatusString(), "send", height)
+		} else {
+			p.Log().Info("gossipVoteData vote below C, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
+		}
+		break
+	}
+	return
+}
+
+func (chain *Chain) pickBuildingSCVoteToPeer(begin, end uint64, p *peer) (sent bool) {
+	for height := begin; height <= end; height++ {
+		votes := chain.buildingStampingVoteWindow[height]
+		if err := p.PickBuildingAndSend(votes); err == nil {
+			sent = true
+
+			p.Log().Info("gossipVoteData vote between C and H", "chain", chain.name, "status", chain.StatusString(), "send", height)
+		} else {
+			p.Log().Info("gossipVoteData vote between C and H, err,", "chain", chain.name,
+				"status", chain.StatusString(), "send", height, "err", err)
+		}
+	}
+
 	return
 }
 
@@ -1059,29 +1105,23 @@ func (chain *Chain) gossipVote(p *peer) {
 		scStatus := chain.ChainStatus()
 		peerScStatus := p.ChainStatus()
 
-		if scStatus.Candidate <= peerScStatus.Candidate {
+		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height {
 			needSleep = true
 			continue
 		}
 
-		beginHeight := MaxUint64(peerScStatus.Candidate, scStatus.Candidate-gossipMaxHeightDiff)
-		for height := beginHeight; height <= scStatus.Candidate; height++ {
-			sc := chain.StampingCertificate(height)
-			if sc == nil {
-				chain.Log().Error("sc not exist", "height", height)
+		if peerScStatus.Candidate < scStatus.Candidate {
+			if chain.pickFrozenSCVoteToPeer(peerScStatus.Candidate, scStatus.Candidate, p) {
 				needSleep = true
 				continue
 			}
+		}
 
-			if err := p.PickAndSend(sc.Votes); err == nil {
-				needSleep = true
-
-				p.Log().Info("gossipVoteData peer is late on Height", "chain", chain.name, "status", chain.StatusString(), "send", height)
-				break
-			} else {
-				p.Log().Info("gossipVoteData peer is late on Height, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
-				needSleep = true
-			}
+		windowFloor := MaxUint64(scStatus.Candidate, peerScStatus.Candidate)
+		windowCeil := MinUint64(scStatus.Height, peerScStatus.Height)
+		if chain.pickBuildingSCVoteToPeer(windowFloor, windowCeil, p) {
+			needSleep = true
+			continue
 		}
 	}
 }

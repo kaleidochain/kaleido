@@ -43,7 +43,7 @@ func (p *peer) Close() {
 }
 
 func (p *peer) Log() log.Logger {
-	return log.New("id", p.id, "HR", p.statusString())
+	return log.New("pid", p.id, "HR", p.statusString())
 }
 
 func (p *peer) statusString() string {
@@ -166,6 +166,23 @@ func (p *peer) PickAndSend(votes []*StampingVote) error {
 	p.SendSCVote(vote)
 
 	return nil
+}
+
+func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
+	if votes == nil || len(votes.votes) == 0 {
+		return fmt.Errorf("has no building votes")
+	}
+
+	for _, vote := range votes.votes {
+		if !p.counter.HasVote(vote) {
+			p.counter.SetHasVote(vote)
+
+			p.SendSCVote(vote)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("selected no vote")
 }
 
 func makePairPeer(c1, c2 *Chain) {
