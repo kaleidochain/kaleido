@@ -4,8 +4,11 @@ import (
 	"crypto/sha512"
 	"fmt"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/kaleidochain/kaleido/common"
 )
@@ -815,6 +818,7 @@ func TestChainSCVote(t *testing.T) {
 }
 
 func TestChainGossip(t *testing.T) {
+	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(5), log.StreamHandler(os.Stdout, log.TerminalFormat(false))))
 	rand.Seed(2)
 
 	maxHeight := uint64(200)
@@ -832,6 +836,7 @@ func TestChainGossip(t *testing.T) {
 	chains := make(MultiChainWrapper, 4)
 	for i := range chains {
 		chains[i] = NewChain(configs[i])
+		chains[i].SetName(fmt.Sprintf("chain%d", i))
 		if i != 4 {
 			chains[i].AutoBuildSCVote()
 		}
@@ -840,13 +845,9 @@ func TestChainGossip(t *testing.T) {
 
 	buildChainConcurrency(t, configs[0], chains, 1, maxHeight, randomStampingMaker(configs[0].FailureProbability))
 
-	chains[0].AddPeerChain(chains[1])
-	chains[0].AddPeerChain(chains[2])
-	chains[0].AddPeerChain(chains[3])
-	chains[1].AddPeerChain(chains[0])
-	chains[1].AddPeerChain(chains[2])
-	chains[2].AddPeerChain(chains[0])
-	chains[2].AddPeerChain(chains[1])
+	makePairPeer(chains[0], chains[1])
+	makePairPeer(chains[0], chains[2])
+	makePairPeer(chains[0], chains[3])
 
 	go func() {
 		for {
