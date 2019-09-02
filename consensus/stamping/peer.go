@@ -187,10 +187,12 @@ func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
 
 func makePairPeer(c1, c2 *Chain) {
 	p1 := newPeer(c1.name + "-" + c2.name)
+	p1.setChain(c1)
 	p1.scStatus = c2.scStatus
 	p1.height = c2.currentHeight
 
 	p2 := newPeer(c2.name + "-" + c1.name)
+	p2.setChain(c2)
 	p2.scStatus = c1.scStatus
 	p2.height = c1.currentHeight
 
