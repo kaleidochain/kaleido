@@ -821,7 +821,6 @@ func (chain *Chain) AutoBuildSCVote(buildVote bool) {
 	generateSCTicker := time.NewTicker(generateSCInterval)
 	go func() {
 		for {
-
 			select {
 			case <-generateSCTicker.C:
 				status := chain.ChainStatus()
@@ -833,13 +832,14 @@ func (chain *Chain) AutoBuildSCVote(buildVote bool) {
 
 				err := chain.AddBlock(header, finalCertificate)
 				if err != nil {
+					chain.Log().Trace("Timer AddBlock", "Status", chain.StatusString(), "newHeight", newHeight, "err", err)
 					panic(fmt.Sprintf("AddBlock failed, height=%d, err=%v", newHeight, err))
 				}
 				if !buildVote {
 					continue
 				}
 
-				weight := uint64(rand.Int63n(int64(chain.config.StampingThreshold))) + 30
+				weight := uint64(rand.Int63n(int64(chain.config.StampingThreshold)))
 				vote := NewStampingVote(newHeight, chain.config.Address, weight)
 
 				chain.Log().Trace("Timer SendSCVote", "Status", chain.StatusString(), "vote", vote.String())
@@ -1075,7 +1075,7 @@ func (chain *Chain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (sent boo
 		if err := p.PickAndSend(sc.Votes); err == nil {
 			sent = true
 
-			p.Log().Info("gossipVoteData vote below C", "chain", chain.name, "status", chain.StatusString(),
+			p.Log().Info("gossipVoteData vote below F", "chain", chain.name, "status", chain.StatusString(),
 				"send", height, "not send", fmt.Sprintf("%d-%d", startLog, endLog))
 			break
 		} else {

@@ -1,6 +1,7 @@
 package stamping
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -108,6 +109,24 @@ func (h *HeightVoteSet) Remove(beginHeight, endHeight uint64) {
 	for height := beginHeight; height < endHeight; height++ {
 		delete(h.userSet, height)
 	}
+}
+
+func (h *HeightVoteSet) Print(height uint64) string {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	if h.userSet == nil {
+		return "no record"
+	}
+	if h.userSet[height] == nil {
+		return fmt.Sprintf("no height(%d) record", height)
+	}
+
+	all := ""
+	for k, v := range h.userSet[height].exists {
+		all += fmt.Sprintf("%s:%t ", hex.EncodeToString([]byte(k)), v)
+	}
+	return all
 }
 
 func NewHeightVoteSet() *HeightVoteSet {
