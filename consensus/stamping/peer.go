@@ -203,9 +203,9 @@ func makePairPeer(c1, c2 *Chain) {
 		for {
 			select {
 			case msg := <-p1.sendChan:
-				p2.recvChan <- msg
-			case msg := <-p2.sendChan:
 				p1.recvChan <- msg
+			case msg := <-p2.sendChan:
+				p2.recvChan <- msg
 			case <-p1.closeChan:
 				p1.Log().Info("Closed")
 				return
