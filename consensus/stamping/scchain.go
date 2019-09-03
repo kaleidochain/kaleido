@@ -816,7 +816,7 @@ func (chain *Chain) syncAllHeaders(peer *Chain, begin, end uint64) (err error) {
 	return
 }
 
-func (chain *Chain) AutoBuildSCVote() {
+func (chain *Chain) AutoBuildSCVote(buildVote bool) {
 	generateSCInterval := 5 * time.Second
 	generateSCTicker := time.NewTicker(generateSCInterval)
 	go func() {
@@ -835,6 +835,9 @@ func (chain *Chain) AutoBuildSCVote() {
 				if err != nil {
 					panic(fmt.Sprintf("AddBlock failed, height=%d, err=%v", newHeight, err))
 				}
+				if !buildVote {
+					continue
+				}
 
 				weight := uint64(rand.Int63n(int64(chain.config.StampingThreshold))) + 30
 				vote := NewStampingVote(newHeight, chain.config.Address, weight)
@@ -852,7 +855,7 @@ func (chain *Chain) AutoBuildSCVote() {
 					data: vote,
 					from: chain.name,
 				}); err != nil {
-					fmt.Printf("broadcast err:%s\n", err)
+					chain.Log().Error("broadcast err", "err", err)
 				}
 			}
 		}
@@ -916,12 +919,12 @@ func (chain *Chain) handleMsg() {
 			case StampingVoteMsg:
 				vote := msg.data.(*StampingVote)
 				if err := chain.handleStampingVote(vote); err != nil {
-					chain.Log().Error("handle vote failed", "vote", vote)
+					chain.Log().Error("handle vote failed", "vote", vote, "from", msg.from, "err", err)
 				}
 			}
 		case <-chain.checkNewTicker.C:
 			if err := chain.checkEnoughVotesAndAddToSCChain(); err != nil {
-				fmt.Printf("handle check new stampingcertificate failed, err:%s\n", err)
+				chain.Log().Error("handle check new stampingcertificate failed", "err", err)
 			}
 		}
 	}
@@ -929,6 +932,7 @@ func (chain *Chain) handleMsg() {
 
 func (chain *Chain) handleStampingVote(vote *StampingVote) error {
 	// verify
+	chain.Log().Trace("handleStampingVote", "vote", vote)
 
 	scStatus := chain.ChainStatus()
 	if vote.Height <= scStatus.Candidate {
@@ -937,7 +941,7 @@ func (chain *Chain) handleStampingVote(vote *StampingVote) error {
 
 	_, _, err := chain.addVoteAndCount(vote, chain.config.StampingThreshold)
 	if err != nil {
-		fmt.Printf("AddVoteAndCount failed, miner:%s, vote:%v, err:%s\n", chain.config.Address.String(), vote, err)
+		chain.Log().Trace("AddVoteAndCount failed", "vote", vote, "err", err)
 		return err
 	}
 
@@ -1060,6 +1064,7 @@ func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added
 }
 
 func (chain *Chain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (sent bool) {
+	var startLog, endLog uint64
 	for height := begin; height <= end; height++ {
 		sc := chain.StampingCertificate(height)
 		if sc == nil {
@@ -1070,25 +1075,36 @@ func (chain *Chain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (sent boo
 		if err := p.PickAndSend(sc.Votes); err == nil {
 			sent = true
 
-			p.Log().Info("gossipVoteData vote below C", "chain", chain.name, "status", chain.StatusString(), "send", height)
+			p.Log().Info("gossipVoteData vote below C", "chain", chain.name, "status", chain.StatusString(),
+				"send", height, "not send", fmt.Sprintf("%d-%d", startLog, endLog))
+			break
 		} else {
-			p.Log().Info("gossipVoteData vote below C, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
+			if startLog == 0 {
+				startLog = height
+			}
+			endLog = height
+			//p.Log().Info("gossipVoteData vote below C, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
 		}
-		break
 	}
 	return
 }
 
 func (chain *Chain) pickBuildingSCVoteToPeer(begin, end uint64, p *peer) (sent bool) {
+	var startLog, endLog uint64
 	for height := begin + 1; height <= end; height++ {
 		votes := chain.buildingStampingVoteWindow[height]
 		if err := p.PickBuildingAndSend(votes); err == nil {
 			sent = true
 
-			p.Log().Info("gossipVoteData vote between C and H", "chain", chain.name, "status", chain.StatusString(), "send", height)
+			p.Log().Info("gossipVoteData vote between C and H", "chain", chain.name, "status", chain.StatusString(),
+				"send", height, "not send", fmt.Sprintf("%d-%d", startLog, endLog))
+			break
 		} else {
-			p.Log().Info("gossipVoteData vote between C and H, err,", "chain", chain.name,
-				"status", chain.StatusString(), "send", height, "err", err)
+			if startLog == 0 {
+				startLog = height
+			}
+			endLog = height
+			//p.Log().Info("gossipVoteData vote between C and H, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
 		}
 	}
 
