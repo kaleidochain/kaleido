@@ -64,19 +64,22 @@ func (p *peer) string() string {
 	return fmt.Sprintf("%s-%d-%d-%d-%d", p.id, p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.height)
 }
 
-func (p *peer) SendSCVote(vote *StampingVote) {
+func (p *peer) SendSCVote(vote *StampingVote) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if vote.Height <= p.scStatus.Candidate {
-		return
+		p.Log().Trace("SendVote too low", "vote", vote)
+		return fmt.Errorf(fmt.Sprintf("SendVote too low, peer status:%s, vote:%v", p.statusString(), vote))
 	}
 
 	if p.counter.hasVote(vote) {
-		return
+		p.Log().Trace("SendVote has vote", "vote", vote, "counter", p.counter.Print(vote.Height))
+		return fmt.Errorf(fmt.Sprintf("SendVote has vote, peer status:%s, vote:%v", p.statusString(), vote))
 	}
 
 	p.sendVoteAndSetHasVoteNoLock(vote)
+	return nil
 }
 
 func (p *peer) sendVoteAndSetHasVoteNoLock(vote *StampingVote) {
@@ -175,9 +178,9 @@ func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
 
 	for _, vote := range votes.votes {
 		if !p.counter.HasVote(vote) {
-			p.counter.SetHasVote(vote)
-
-			p.SendSCVote(vote)
+			if err := p.SendSCVote(vote); err == nil {
+				p.counter.SetHasVote(vote)
+			} // else {} ??
 			return nil
 		}
 	}
