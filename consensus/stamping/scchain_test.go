@@ -791,7 +791,7 @@ func TestChainSCVote(t *testing.T) {
 	chains := make(MultiChainWrapper, 3)
 	for i := range chains {
 		chains[i] = NewChain(configs[i])
-		chains[i].AutoBuildSCVote()
+		chains[i].AutoBuildSCVote(true)
 		chains[i].Start()
 	}
 
@@ -817,13 +817,14 @@ func TestChainSCVote(t *testing.T) {
 	time.Sleep(50 * 60 * time.Second)
 }
 
-func TestChainGossip(t *testing.T) {
+func TestChainGossipP1SCP2NoSC(t *testing.T) {
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(5), log.StreamHandler(os.Stdout, log.TerminalFormat(false))))
-	rand.Seed(2)
+	rand.Seed(3)
 
 	maxHeight := uint64(200)
+	chainNum := 2
 	var configs []*Config
-	for i := 1; i <= 4; i++ {
+	for i := 1; i <= chainNum; i++ {
 		config := Config{
 			B:                  20,
 			FailureProbability: 65,
@@ -833,12 +834,14 @@ func TestChainGossip(t *testing.T) {
 		configs = append(configs, &config)
 	}
 
-	chains := make(MultiChainWrapper, 4)
+	chains := make(MultiChainWrapper, chainNum)
 	for i := range chains {
 		chains[i] = NewChain(configs[i])
-		chains[i].SetName(fmt.Sprintf("chain%d", i))
-		if i != 4 {
-			chains[i].AutoBuildSCVote()
+		chains[i].SetName(fmt.Sprintf("chain%d", i+1))
+		if i+1 == chainNum {
+			chains[i].AutoBuildSCVote(false)
+		} else {
+			chains[i].AutoBuildSCVote(true)
 		}
 		chains[i].Start()
 	}
@@ -846,8 +849,8 @@ func TestChainGossip(t *testing.T) {
 	buildChainConcurrency(t, configs[0], chains, 1, maxHeight, randomStampingMaker(configs[0].FailureProbability))
 
 	makePairPeer(chains[0], chains[1])
-	makePairPeer(chains[0], chains[2])
-	makePairPeer(chains[0], chains[3])
+	//makePairPeer(chains[0], chains[2])
+	//makePairPeer(chains[0], chains[3])
 
 	go func() {
 		for {
@@ -859,5 +862,49 @@ func TestChainGossip(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(50 * 60 * time.Second)
+	time.Sleep(150 * 60 * time.Second)
+}
+
+func TestChainGossipP1SCP2SC(t *testing.T) {
+	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(5), log.StreamHandler(os.Stdout, log.TerminalFormat(false))))
+	rand.Seed(3)
+
+	maxHeight := uint64(200)
+	chainNum := 2
+	var configs []*Config
+	for i := 1; i <= chainNum; i++ {
+		config := Config{
+			B:                  20,
+			FailureProbability: 65,
+			StampingThreshold:  100,
+		}
+		config.Address = common.HexToAddress(fmt.Sprintf("0x%d00000000000000000000000000000000000000%d", i, i))
+		configs = append(configs, &config)
+	}
+
+	chains := make(MultiChainWrapper, chainNum)
+	for i := range chains {
+		chains[i] = NewChain(configs[i])
+		chains[i].SetName(fmt.Sprintf("chain%d", i+1))
+		chains[i].AutoBuildSCVote(true)
+		chains[i].Start()
+	}
+
+	buildChainConcurrency(t, configs[0], chains, 1, maxHeight, randomStampingMaker(configs[0].FailureProbability))
+
+	makePairPeer(chains[0], chains[1])
+	//makePairPeer(chains[0], chains[2])
+	//makePairPeer(chains[0], chains[3])
+
+	go func() {
+		for {
+			for i := range chains {
+				chains[i].Print()
+			}
+
+			time.Sleep(60 * time.Second)
+		}
+	}()
+
+	time.Sleep(150 * 60 * time.Second)
 }
