@@ -135,7 +135,7 @@ func (p *peer) updateStatus(msg StatusMsg) (uint64, uint64, bool) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	if msg.Candidate <= p.scStatus.Candidate {
+	if msg.Candidate < p.scStatus.Candidate || msg.Height < p.height {
 		return 0, 0, false
 	}
 

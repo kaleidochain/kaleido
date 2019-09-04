@@ -844,21 +844,31 @@ func (chain *Chain) AutoBuildSCVote(buildVote bool) {
 
 				chain.Log().Trace("Timer SendSCVote", "Status", chain.StatusString(), "vote", vote.String())
 
+				statusMsg := StatusMsg{
+					SCStatus: chain.scStatus,
+					Height:   chain.currentHeight,
+				}
+				if err := chain.broadcastMessage(message{
+					code: StampingStatusMsg,
+					data: &statusMsg,
+					from: chain.name,
+				}); err != nil {
+					chain.Log().Error("broadcast status", "err", err)
+				}
+
 				chain.sendToMessageChan(message{
 					code: StampingVoteMsg,
 					data: vote,
 					from: chain.name,
 				})
 
-				/*
-					if err := chain.broadcastMessage(message{
-						code: StampingVoteMsg,
-						data: vote,
-						from: chain.name,
-					}); err != nil {
-						chain.Log().Error("broadcast err", "err", err)
-					}
-				*/
+				if err := chain.broadcastMessage(message{
+					code: StampingVoteMsg,
+					data: vote,
+					from: chain.name,
+				}); err != nil {
+					chain.Log().Error("broadcast err", "err", err)
+				}
 			}
 		}
 	}()
@@ -882,9 +892,11 @@ func (chain *Chain) broadcastMessage(msg message) error {
 			peer.SendStatus(*status)
 		}
 	case StampingVoteMsg:
+		vote := msg.data.(*StampingVote)
 		for _, peer := range chain.peers {
-			vote := msg.data.(*StampingVote)
-			peer.SendSCVote(vote)
+			if peer.ChainStatus().Height >= vote.Height {
+				peer.SendSCVote(vote)
+			}
 		}
 	}
 
@@ -1124,7 +1136,7 @@ func (chain *Chain) gossipVote(p *peer) {
 		scStatus := chain.ChainStatus()
 		peerScStatus := p.ChainStatus()
 
-		//p.Log().Trace("gossip begin", "status", chain.StatusString())
+		p.Log().Trace("gossip begin", "status", chain.StatusString())
 
 		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height+gossipMaxHeightDiff {
 			needSleep = true
