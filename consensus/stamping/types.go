@@ -13,6 +13,7 @@ import (
 const (
 	StampingStatusMsg = 0x00
 	StampingVoteMsg   = 0x01
+	HasVoteMsg        = 0x02
 )
 
 const msgChanSize = 4096

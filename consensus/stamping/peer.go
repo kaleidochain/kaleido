@@ -162,11 +162,11 @@ func (p *peer) PickAndSend(votes []*StampingVote) error {
 
 	vote := p.counter.RandomNotIn(votes)
 	if vote == nil {
-		return fmt.Errorf("has no vote to be selected")
+		return fmt.Errorf("has no vote to be selected, counter:%s", p.counter.Print(votes[0].Height))
 	}
-	p.counter.SetHasVote(vote)
 
-	p.SendSCVote(vote)
+	if err := p.SendSCVote(vote); err == nil {
+	} // else {} ??
 
 	return nil
 }
@@ -179,7 +179,6 @@ func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
 	for _, vote := range votes.votes {
 		if !p.counter.HasVote(vote) {
 			if err := p.SendSCVote(vote); err == nil {
-				p.counter.SetHasVote(vote)
 			} // else {} ??
 			return nil
 		}
@@ -190,12 +189,12 @@ func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
 
 func makePairPeer(c1, c2 *Chain) {
 	p1 := newPeer(c1.name + "-" + c2.name)
-	p1.setChain(c1)
+	p1.setChain(c2)
 	p1.scStatus = c2.scStatus
 	p1.height = c2.currentHeight
 
 	p2 := newPeer(c2.name + "-" + c1.name)
-	p2.setChain(c2)
+	p2.setChain(c1)
 	p2.scStatus = c1.scStatus
 	p2.height = c1.currentHeight
 
@@ -206,9 +205,9 @@ func makePairPeer(c1, c2 *Chain) {
 		for {
 			select {
 			case msg := <-p1.sendChan:
-				p1.recvChan <- msg
-			case msg := <-p2.sendChan:
 				p2.recvChan <- msg
+			case msg := <-p2.sendChan:
+				p1.recvChan <- msg
 			case <-p1.closeChan:
 				p1.Log().Info("Closed")
 				return

@@ -106,7 +106,7 @@ func NewNode(header *Header) *Node {
 
 const checkNewSCInterval = 30 * time.Second
 const stampingVoteCandidateTerm = 30
-const gossipMaxHeightDiff = 100
+const gossipMaxHeightDiff = 20
 
 type StatusMsg struct {
 	SCStatus
@@ -171,11 +171,11 @@ func (chain *Chain) SetName(name string) {
 	chain.name = name
 }
 
-func (chain *Chain) AddPeer(peer *peer) {
-	chain.peers = append(chain.peers, peer)
+func (chain *Chain) AddPeer(p *peer) {
+	chain.peers = append(chain.peers, p)
 
-	go chain.gossipVote(peer)
-	go peer.handleMsg()
+	go chain.gossipVote(p)
+	go p.handleMsg()
 }
 
 func (chain *Chain) AddPeerChain(peer *Chain) {
@@ -850,13 +850,15 @@ func (chain *Chain) AutoBuildSCVote(buildVote bool) {
 					from: chain.name,
 				})
 
-				if err := chain.broadcastMessage(message{
-					code: StampingVoteMsg,
-					data: vote,
-					from: chain.name,
-				}); err != nil {
-					chain.Log().Error("broadcast err", "err", err)
-				}
+				/*
+					if err := chain.broadcastMessage(message{
+						code: StampingVoteMsg,
+						data: vote,
+						from: chain.name,
+					}); err != nil {
+						chain.Log().Error("broadcast err", "err", err)
+					}
+				*/
 			}
 		}
 	}()
@@ -1083,7 +1085,7 @@ func (chain *Chain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (sent boo
 				startLog = height
 			}
 			endLog = height
-			//p.Log().Info("gossipVoteData vote below C, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
+			p.Log().Info("gossipVoteData vote below C, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
 		}
 	}
 	return
@@ -1122,7 +1124,9 @@ func (chain *Chain) gossipVote(p *peer) {
 		scStatus := chain.ChainStatus()
 		peerScStatus := p.ChainStatus()
 
-		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height {
+		//p.Log().Trace("gossip begin", "status", chain.StatusString())
+
+		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height+gossipMaxHeightDiff {
 			needSleep = true
 			continue
 		}
