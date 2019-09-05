@@ -817,7 +817,7 @@ func (chain *Chain) syncAllHeaders(peer *Chain, begin, end uint64) (err error) {
 }
 
 func (chain *Chain) AutoBuildSCVote(buildVote bool) {
-	generateSCInterval := 5 * time.Second
+	generateSCInterval := 2 * time.Second
 	generateSCTicker := time.NewTicker(generateSCInterval)
 	go func() {
 		for {
@@ -1097,13 +1097,16 @@ func (chain *Chain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (sent boo
 				startLog = height
 			}
 			endLog = height
-			p.Log().Info("gossipVoteData vote below C, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
+			//p.Log().Info("gossipVoteData vote below C, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
 		}
 	}
 	return
 }
 
-func (chain *Chain) pickBuildingSCVoteToPeer(begin, end uint64, p *peer) (sent bool) {
+func (chain *Chain) PickBuildingSCVoteToPeer(begin, end uint64, p *peer) (sent bool) {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
 	var startLog, endLog uint64
 	for height := begin + 1; height <= end; height++ {
 		votes := chain.buildingStampingVoteWindow[height]
@@ -1136,7 +1139,7 @@ func (chain *Chain) gossipVote(p *peer) {
 		scStatus := chain.ChainStatus()
 		peerScStatus := p.ChainStatus()
 
-		p.Log().Trace("gossip begin", "status", chain.StatusString())
+		//p.Log().Trace("gossip begin", "status", chain.StatusString())
 
 		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height+gossipMaxHeightDiff {
 			needSleep = true
@@ -1152,7 +1155,7 @@ func (chain *Chain) gossipVote(p *peer) {
 
 		windowFloor := MaxUint64(scStatus.Candidate, peerScStatus.Candidate)
 		windowCeil := MinUint64(scStatus.Height, peerScStatus.Height)
-		if chain.pickBuildingSCVoteToPeer(windowFloor, windowCeil, p) {
+		if chain.PickBuildingSCVoteToPeer(windowFloor, windowCeil, p) {
 			needSleep = true
 			continue
 		}
@@ -1399,6 +1402,30 @@ func (chain *Chain) SyncBase(peer *Chain) error {
 		}
 	}
 	return nil
+}
+
+func (chain *Chain) EqualRange(other *Chain, begin, end uint64) (bool, error) {
+	for height := begin; height <= end; height++ {
+		header := chain.header(height)
+		oHeader := other.Header(height)
+		if !EqualHeader(header, oHeader) {
+			return false, fmt.Errorf("header or other not exists, height:%d, this:%v, other:%v", height, header, oHeader)
+		}
+
+		fc := chain.finalCertificate(height)
+		ofc := other.FinalCertificate(height)
+		if !EqualFinalCertificate(fc, ofc) {
+			return false, fmt.Errorf("fc not equal, height:%d, this:%v, other:%v", height, fc, ofc)
+		}
+
+		sc := chain.stampingCertificate(height)
+		osc := other.StampingCertificate(height)
+		if !EqualStampingCertificate(sc, osc) {
+			return false, fmt.Errorf("sc not equal, height:%d, this:%v, other:%v", height, sc, osc)
+		}
+	}
+
+	return true, nil
 }
 
 func (chain *Chain) Equal(other *Chain) (bool, error) {

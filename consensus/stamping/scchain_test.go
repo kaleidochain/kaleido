@@ -849,7 +849,7 @@ func TestChainGossipP1SCP2NoSC(t *testing.T) {
 }
 
 func makeMultiChain(t *testing.T, chainNum int) []*Chain {
-	maxHeight := uint64(200)
+	maxHeight := uint64(20)
 	var configs []*Config
 	for i := 1; i <= chainNum; i++ {
 		config := Config{
@@ -901,9 +901,10 @@ func TestChainGossipP1P2P3(t *testing.T) {
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(5), log.StreamHandler(os.Stdout, log.TerminalFormat(false))))
 	rand.Seed(3)
 
-	chains := makeMultiChain(t, 3)
+	chainNum := 3
+	chains := makeMultiChain(t, chainNum)
 	for i := range chains {
-		if i+1 == 3 {
+		if i+1 == chainNum {
 			chains[i].AutoBuildSCVote(false)
 		} else {
 			chains[i].AutoBuildSCVote(true)
@@ -913,15 +914,55 @@ func TestChainGossipP1P2P3(t *testing.T) {
 	makePairPeer(chains[0], chains[1])
 	makePairPeer(chains[1], chains[2])
 
-	go func() {
-		for {
-			for i := range chains {
-				chains[i].Print()
-			}
+	/*
+		go func() {
+			for {
+				for i := range chains {
+					chains[i].Print()
+				}
 
-			time.Sleep(60 * time.Second)
-		}
-	}()
+				time.Sleep(60 * time.Second)
+			}
+		}()
+	*/
 
 	time.Sleep(150 * 60 * time.Second)
+
+	scStatus := chains[0].ChainStatus()
+	equal, err := chains[1].EqualRange(chains[2], 1, scStatus.Fz)
+	if !equal {
+		t.Errorf(fmt.Sprintf("not equal, err:%s", err))
+
+		chains[1].Print()
+		fmt.Println("---------------------------------other-----------------------------------------------------")
+		chains[2].Print()
+	}
+}
+
+func TestChainGossipP1P2P3P4(t *testing.T) {
+	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(5), log.StreamHandler(os.Stdout, log.TerminalFormat(false))))
+	rand.Seed(3)
+
+	chainNum := 4
+	chains := makeMultiChain(t, chainNum)
+	for i := range chains {
+		chains[i].AutoBuildSCVote(true)
+
+	}
+
+	makePairPeer(chains[0], chains[1])
+	makePairPeer(chains[1], chains[2])
+	makePairPeer(chains[2], chains[3])
+
+	time.Sleep(10 * 60 * time.Second)
+
+	scStatus := chains[0].ChainStatus()
+	equal, err := chains[0].EqualRange(chains[3], 1, scStatus.Fz)
+	if !equal {
+		t.Errorf(fmt.Sprintf("not equal, err:%s", err))
+
+		chains[0].Print()
+		fmt.Println("---------------------------------other-----------------------------------------------------")
+		chains[3].Print()
+	}
 }
