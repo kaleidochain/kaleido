@@ -977,6 +977,10 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 				maxEnoughVotesHeight = height
 			}
 
+		}
+	}
+	for height, votes := range chain.buildingStampingVoteWindow {
+		if votes.weight >= chain.config.StampingThreshold {
 			if height <= maxEnoughVotesHeight {
 				enoughHeights = append(enoughHeights, height)
 			}
