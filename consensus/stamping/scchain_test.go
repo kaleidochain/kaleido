@@ -941,13 +941,12 @@ func TestChainGossipP1P2P3(t *testing.T) {
 
 func TestChainGossipP1P2P3P4(t *testing.T) {
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(5), log.StreamHandler(os.Stdout, log.TerminalFormat(false))))
-	rand.Seed(3)
+	rand.Seed(4)
 
 	chainNum := 4
 	chains := makeMultiChain(t, chainNum)
 	for i := range chains {
-		chains[i].AutoBuildSCVote(true)
-
+		chains[i].AutoBuildSCVote(i < 2)
 	}
 
 	makePairPeer(chains[0], chains[1])
@@ -964,5 +963,46 @@ func TestChainGossipP1P2P3P4(t *testing.T) {
 		chains[0].Print()
 		fmt.Println("---------------------------------other-----------------------------------------------------")
 		chains[3].Print()
+	} else {
+		chains[0].Print()
+		fmt.Println("---------------------------------other-----------------------------------------------------")
+		chains[3].Print()
+		t.Log("equal")
 	}
+
+}
+
+func TestChainGossipP1P2P3P4P1(t *testing.T) {
+	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(5), log.StreamHandler(os.Stdout, log.TerminalFormat(false))))
+	rand.Seed(9)
+
+	chainNum := 4
+	chains := makeMultiChain(t, chainNum)
+	for i := range chains {
+		chains[i].AutoBuildSCVote(true)
+
+	}
+
+	makePairPeer(chains[0], chains[1])
+	makePairPeer(chains[1], chains[2])
+	makePairPeer(chains[2], chains[3])
+	makePairPeer(chains[0], chains[3])
+
+	time.Sleep(20 * 60 * time.Second)
+
+	scStatus := chains[0].ChainStatus()
+	equal, err := chains[0].EqualRange(chains[3], 1, scStatus.Fz)
+	if !equal {
+		t.Errorf(fmt.Sprintf("not equal, err:%s", err))
+
+		chains[0].Print()
+		fmt.Println("---------------------------------other-----------------------------------------------------")
+		chains[3].Print()
+	} else {
+		chains[0].Print()
+		fmt.Println("---------------------------------other-----------------------------------------------------")
+		chains[3].Print()
+		t.Log("equal")
+	}
+
 }
