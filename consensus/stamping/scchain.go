@@ -947,7 +947,7 @@ func (chain *Chain) handleMsg() {
 			}
 
 			// for statistic
-			chain.checkEnoughVotesAndCount()
+			chain.checkBelowCEnoughVotesAndCount()
 		}
 	}
 }
@@ -1048,7 +1048,7 @@ func findEnoughHeights(window MapStampingVotes, threshold uint64) (uint64, []uin
 	return maxEnoughVotesHeight, enoughHeights
 }
 
-func (chain *Chain) checkEnoughVotesAndCount() {
+func (chain *Chain) checkBelowCEnoughVotesAndCount() {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
