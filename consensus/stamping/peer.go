@@ -89,17 +89,17 @@ func (p *peer) sendVoteAndSetHasVoteNoLock(vote *StampingVote) {
 		from: p.id,
 	})
 
-	p.counter.SetHasVote(vote)
+	p.counter.SetHasVote(vote.ToHasVoteData())
 	p.Log().Trace("SendVote OK", "vote", vote)
 }
 
-func (p *peer) SendStatus(status StatusMsg) {
+func (p *peer) SendMsg(msg message) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	p.send(message{
-		code: StampingStatusMsg,
-		data: &status,
+		code: msg.code,
+		data: msg.data,
 		from: p.id,
 	})
 }
@@ -118,7 +118,7 @@ func (p *peer) handleMsg() error {
 		case msg := <-p.recvChan:
 			switch msg.code {
 			case StampingVoteMsg:
-				p.counter.SetHasVote(msg.data.(*StampingVote))
+				p.counter.SetHasVote(msg.data.(*StampingVote).ToHasVoteData())
 				p.chain.OnReceive(StampingVoteMsg, msg.data, p.string())
 			case StampingStatusMsg:
 				status := msg.data.(*StatusMsg)
@@ -126,6 +126,8 @@ func (p *peer) handleMsg() error {
 				if updated {
 					p.updateCounter(begin, end)
 				}
+			case HasVoteMsg:
+				p.counter.SetHasVote(msg.data.(*HasVoteData))
 			}
 		}
 	}

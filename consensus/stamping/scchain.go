@@ -890,10 +890,11 @@ func (chain *Chain) sendToMessageChan(msg message) {
 
 func (chain *Chain) broadcastMessage(msg message) error {
 	switch msg.code {
+	case HasVoteMsg:
+		fallthrough
 	case StampingStatusMsg:
 		for _, peer := range chain.peers {
-			status := msg.data.(*StatusMsg)
-			peer.SendStatus(*status)
+			peer.SendMsg(msg)
 		}
 	case StampingVoteMsg:
 		vote := msg.data.(*StampingVote)
@@ -960,6 +961,12 @@ func (chain *Chain) handleStampingVote(vote *StampingVote) error {
 		chain.Log().Trace("AddVoteAndCount failed", "vote", vote, "err", err)
 		return err
 	}
+
+	chain.broadcastMessage(message{
+		code: HasVoteMsg,
+		data: vote.ToHasVoteData(),
+		from: chain.name,
+	})
 
 	return nil
 }

@@ -70,19 +70,19 @@ func (h *HeightVoteSet) hasVote(vote *StampingVote) bool {
 	return useSet.Has(vote.Address)
 }
 
-func (h *HeightVoteSet) SetHasVote(vote *StampingVote) {
+func (h *HeightVoteSet) SetHasVote(has *HasVoteData) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	var userSet *UserSet
-	if h.userSet[vote.Height] == nil {
+	if h.userSet[has.Height] == nil {
 		userSet = NewUserSet()
-		h.userSet[vote.Height] = userSet
+		h.userSet[has.Height] = userSet
 	} else {
-		userSet = h.userSet[vote.Height]
+		userSet = h.userSet[has.Height]
 	}
 
-	userSet.Add(vote.Address)
+	userSet.Add(has.Address)
 }
 
 func (h *HeightVoteSet) RandomNotIn(votes []*StampingVote) *StampingVote {
@@ -192,6 +192,18 @@ func (sc *StampingCertificate) Verify(config *Config, header, proofHeader *Heade
 		sc.Root == proofHeader.Root
 }
 
+type HasVoteData struct {
+	Address common.Address
+	Height  uint64
+}
+
+func NewHasVoteData(address common.Address, height uint64) *HasVoteData {
+	return &HasVoteData{
+		Address: address,
+		Height:  height,
+	}
+}
+
 type StampingVote struct {
 	Height  uint64
 	Address common.Address
@@ -208,6 +220,10 @@ func NewStampingVote(height uint64, address common.Address, weight uint64) *Stam
 
 func (vote *StampingVote) String() string {
 	return fmt.Sprintf("%d(%d) by %s", vote.Height, vote.Weight, vote.Address.String())
+}
+
+func (vote *StampingVote) ToHasVoteData() *HasVoteData {
+	return NewHasVoteData(vote.Address, vote.Height)
 }
 
 type StampingVotes struct {
