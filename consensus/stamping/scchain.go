@@ -107,6 +107,7 @@ func NewNode(header *Header) *Node {
 const checkNewSCInterval = 30 * time.Second
 const stampingVoteCandidateTerm = 30
 const gossipMaxHeightDiff = 20
+const belowCHeight = 100
 
 type StatusMsg struct {
 	SCStatus
@@ -118,6 +119,8 @@ type SCStatus struct {
 	Proof     uint64
 	Fz        uint64
 }
+
+type MapStampingVotes map[uint64]*StampingVotes
 
 type Chain struct {
 	config      *Config
@@ -137,8 +140,8 @@ type Chain struct {
 	troubleMaker TroubleMaker
 
 	messageChan                chan message
-	buildingStampingVoteWindow map[uint64]*StampingVotes
-	maxVoteHeight              uint64
+	buildingStampingVoteWindow MapStampingVotes
+	belowStampingVoteWindow    MapStampingVotes
 	checkNewInterval           uint64
 	checkNewTicker             *time.Ticker
 	counter                    *HeightVoteSet
@@ -156,7 +159,8 @@ func NewChain(config *Config) *Chain {
 	}
 	chain.headerChain[0] = genesisHeader
 	chain.messageChan = make(chan message, msgChanSize)
-	chain.buildingStampingVoteWindow = make(map[uint64]*StampingVotes)
+	chain.buildingStampingVoteWindow = make(MapStampingVotes)
+	chain.belowStampingVoteWindow = make(MapStampingVotes)
 	chain.checkNewTicker = time.NewTicker(checkNewSCInterval)
 	chain.counter = NewHeightVoteSet()
 
@@ -940,6 +944,9 @@ func (chain *Chain) handleMsg() {
 			if err := chain.checkEnoughVotesAndAddToSCChain(); err != nil {
 				chain.Log().Error("handle check new stampingcertificate failed", "err", err)
 			}
+
+			// for statistic
+			chain.checkEnoughVotesAndCount()
 		}
 	}
 }
@@ -947,11 +954,6 @@ func (chain *Chain) handleMsg() {
 func (chain *Chain) handleStampingVote(vote *StampingVote) error {
 	// verify
 	chain.Log().Trace("handleStampingVote", "vote", vote)
-
-	scStatus := chain.ChainStatus()
-	if vote.Height <= scStatus.Candidate {
-		return fmt.Errorf("recv low sc vote, drop it, sc:%v", vote)
-	}
 
 	_, _, err := chain.addVoteAndCount(vote, chain.config.StampingThreshold)
 	if err != nil {
@@ -966,26 +968,7 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
-	maxEnoughVotesHeight := uint64(0)
-
-	var enoughHeights []uint64
-	now := time.Now().Unix()
-	for height, votes := range chain.buildingStampingVoteWindow {
-		chain.Log().Trace("check enough", "height", height, "now", now, "votes", votes)
-		if votes.weight >= chain.config.StampingThreshold && (now-votes.ts >= int64(stampingVoteCandidateTerm)) {
-			if maxEnoughVotesHeight < height {
-				maxEnoughVotesHeight = height
-			}
-
-		}
-	}
-	for height, votes := range chain.buildingStampingVoteWindow {
-		if votes.weight >= chain.config.StampingThreshold {
-			if height <= maxEnoughVotesHeight {
-				enoughHeights = append(enoughHeights, height)
-			}
-		}
-	}
+	maxEnoughVotesHeight, enoughHeights := findEnoughHeights(chain.buildingStampingVoteWindow, chain.config.StampingThreshold)
 
 	if maxEnoughVotesHeight != 0 {
 		sort.Slice(enoughHeights, func(i, j int) bool {
@@ -1030,8 +1013,47 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 			chain.Log().Error("broadcast status", "err", err)
 		}
 	}
-	chain.Log().Trace("check enough done", "max height:", maxEnoughVotesHeight)
+	chain.Log().Trace("check enough done", "max height", maxEnoughVotesHeight)
 	return nil
+}
+
+func findEnoughHeights(window MapStampingVotes, threshold uint64) (uint64, []uint64) {
+	maxEnoughVotesHeight := uint64(0)
+
+	var enoughHeights []uint64
+	now := time.Now().Unix()
+	for height, votes := range window {
+		if votes.weight >= threshold && (now-votes.ts >= int64(stampingVoteCandidateTerm)) {
+			if maxEnoughVotesHeight < height {
+				maxEnoughVotesHeight = height
+			}
+
+		}
+	}
+	for height, votes := range window {
+		if votes.weight >= threshold {
+			if height <= maxEnoughVotesHeight {
+				enoughHeights = append(enoughHeights, height)
+			}
+		}
+	}
+
+	return maxEnoughVotesHeight, enoughHeights
+}
+
+func (chain *Chain) checkEnoughVotesAndCount() {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
+
+	maxEnoughVotesHeight, enoughHeights := findEnoughHeights(chain.belowStampingVoteWindow, chain.config.StampingThreshold)
+
+	for height := range chain.belowStampingVoteWindow {
+		if height <= maxEnoughVotesHeight || ((height > belowCHeight) && (height <= chain.scStatus.Candidate-100)) {
+			delete(chain.buildingStampingVoteWindow, height)
+		}
+	}
+
+	chain.Log().Trace("check below C enough done", "max height", maxEnoughVotesHeight, "enough", len(enoughHeights))
 }
 
 func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added, enough bool, err error) {
@@ -1039,6 +1061,7 @@ func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added
 	defer chain.mutexChain.Unlock()
 
 	if vote.Height <= chain.scStatus.Candidate {
+		chain.processStampingVoteWindow(vote, chain.belowStampingVoteWindow, threshold)
 		return false, false, fmt.Errorf("vote.height too low, height:%d, C:%d\n",
 			vote.Height, chain.scStatus.Candidate)
 	}
@@ -1048,13 +1071,18 @@ func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added
 			vote.Height, chain.currentHeight)
 	}
 
-	votes, ok := chain.buildingStampingVoteWindow[vote.Height]
+	added, enough, err = chain.processStampingVoteWindow(vote, chain.buildingStampingVoteWindow, threshold)
+
+	chain.Log().Info("AddVoteAndCount OK", "miner", chain.config.Address.String(), "Added", added, "Enough", enough,
+		"Weight", fmt.Sprintf("(%d/%d)", chain.buildingStampingVoteWindow[vote.Height].weight, threshold), "vote", vote)
+	return
+}
+
+func (chain *Chain) processStampingVoteWindow(vote *StampingVote, window MapStampingVotes, threshold uint64) (added, enough bool, err error) {
+	votes, ok := window[vote.Height]
 	if !ok {
 		votes = NewStampingVotes()
-		chain.buildingStampingVoteWindow[vote.Height] = votes
-	}
-	if chain.maxVoteHeight < vote.Height {
-		chain.maxVoteHeight = vote.Height
+		window[vote.Height] = votes
 	}
 
 	if votes.hasVote(vote.Address) {
@@ -1076,8 +1104,6 @@ func (chain *Chain) addVoteAndCount(vote *StampingVote, threshold uint64) (added
 		votes.setEnoughTs()
 	}
 
-	chain.Log().Info("AddVoteAndCount OK", "miner", chain.config.Address.String(), "Added", added, "Enough", enough,
-		"Weight", fmt.Sprintf("(%d/%d)", votes.weight, threshold), "vote", vote)
 	return
 }
 
