@@ -21,7 +21,7 @@ type randomStampingMaker int
 
 func (failureProbability randomStampingMaker) Make(height uint64, proofHeader *Header) *StampingCertificate {
 	if rand.Intn(100) >= int(failureProbability) {
-		return NewStampingCertificateWithVotes(height, proofHeader)
+		return NewStampingCertificate(height, proofHeader)
 	}
 	return nil
 }
@@ -31,7 +31,7 @@ type sequenceStampingMaker []uint64
 func (sequence sequenceStampingMaker) Make(height uint64, proofHeader *Header) *StampingCertificate {
 	for _, h := range sequence {
 		if h == height {
-			return NewStampingCertificateWithVotes(height, proofHeader)
+			return NewStampingCertificate(height, proofHeader)
 		}
 	}
 	return nil

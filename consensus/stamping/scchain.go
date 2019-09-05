@@ -992,7 +992,7 @@ func (chain *Chain) checkEnoughVotesAndAddToSCChain() (err error) {
 			delete(chain.buildingStampingVoteWindow, height)
 
 			proofHeader := chain.header(height - chain.config.B)
-			sc := NewStampingCertificate(height, proofHeader, scVotes)
+			sc := NewStampingCertificateWithVotes(height, proofHeader, scVotes)
 			if sc == nil {
 				return fmt.Errorf("new sc(%d) failed\n", height)
 			}

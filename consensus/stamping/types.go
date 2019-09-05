@@ -167,7 +167,7 @@ type StampingCertificate struct {
 	Votes  []*StampingVote
 }
 
-func NewStampingCertificateWithVotes(height uint64, proofHeader *Header) *StampingCertificate {
+func NewStampingCertificate(height uint64, proofHeader *Header) *StampingCertificate {
 	return &StampingCertificate{
 		Height: height,
 		Seed:   proofHeader.Seed,
@@ -175,7 +175,7 @@ func NewStampingCertificateWithVotes(height uint64, proofHeader *Header) *Stampi
 	}
 }
 
-func NewStampingCertificate(height uint64, proofHeader *Header, votes []*StampingVote) *StampingCertificate {
+func NewStampingCertificateWithVotes(height uint64, proofHeader *Header, votes []*StampingVote) *StampingCertificate {
 	return &StampingCertificate{
 		Height: height,
 		Seed:   proofHeader.Seed,
@@ -190,6 +190,11 @@ func (sc *StampingCertificate) Verify(config *Config, header, proofHeader *Heade
 		header.Height == proofHeader.Height+config.B &&
 		sc.Seed == proofHeader.Seed &&
 		sc.Root == proofHeader.Root
+	// TODO: verify votes
+}
+
+func (sc *StampingCertificate) AddVote(vote *StampingVote) {
+	sc.Votes = append(sc.Votes, vote)
 }
 
 type HasVoteData struct {
