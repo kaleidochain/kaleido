@@ -99,6 +99,7 @@ func buildChainConcurrency(t *testing.T, config *Config, chain ChainReadWriter, 
 		case *Chain:
 			proofHeader := c.Header(height - config.B)
 			if s := maker.Make(height, proofHeader); s != nil {
+				s.AddVote(NewStampingVote(height, c.config.Address, c.config.StampingThreshold))
 				err := c.AddStampingCertificate(s)
 				if err != nil {
 					t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
@@ -108,10 +109,12 @@ func buildChainConcurrency(t *testing.T, config *Config, chain ChainReadWriter, 
 			for _, each := range c {
 				proofHeader := each.Header(height - config.B)
 				if s := maker.Make(height, proofHeader); s != nil {
+					s.AddVote(NewStampingVote(height, each.config.Address, each.config.StampingThreshold))
 					err := each.AddStampingCertificate(s)
 					if err != nil {
 						t.Fatalf("AddStampingCertificate failed, height=%d, err=%v", s.Height, err)
 					}
+
 				}
 			}
 		}
@@ -1004,5 +1007,56 @@ func TestChainGossipP1P2P3P4P1(t *testing.T) {
 		chains[3].Print()
 		t.Log("equal")
 	}
+}
 
+func TestChainSyncGossip(t *testing.T) {
+	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(5), log.StreamHandler(os.Stdout, log.TerminalFormat(false))))
+	rand.Seed(9)
+
+	maxHeight := uint64(2000)
+	config := &Config{
+		B:                  30,
+		FailureProbability: 65,
+		StampingThreshold:  100,
+	}
+
+	a := NewChain(config)
+	buildChainConcurrency(t, config, a, 1, maxHeight, randomStampingMaker(config.FailureProbability))
+	b, c, d := ensureSyncOk(t, a)
+
+	var chains []*Chain
+	chains = append(chains, a, b, c, d)
+
+	for i := range chains {
+		index := i + 1
+		chains[i].config = &Config{
+			B:                  30,
+			FailureProbability: 65,
+			StampingThreshold:  100,
+		}
+		chains[i].config.Address = common.HexToAddress(fmt.Sprintf("0x%d00000000000000000000000000000000000000%d", index, index))
+		chains[i].SetName(fmt.Sprintf("chain%d", index))
+		chains[i].Start()
+	}
+	for i := range chains {
+
+		chains[i].AutoBuildSCVote(true)
+	}
+
+	makePairPeer(chains[0], chains[1])
+	makePairPeer(chains[1], chains[2])
+	makePairPeer(chains[2], chains[3])
+	makePairPeer(chains[0], chains[3])
+
+	go func() {
+		for {
+			for i := range chains {
+				chains[i].Print()
+			}
+
+			time.Sleep(60 * time.Second)
+		}
+	}()
+
+	time.Sleep(20 * 60 * time.Second)
 }
