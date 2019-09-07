@@ -162,6 +162,7 @@ func (fc *FinalCertificate) Verify(header, parent *Header) bool {
 
 type StampingCertificate struct {
 	Height uint64
+	Hash   common.Hash // TODO: need verify
 	Seed   common.Hash
 	Root   common.Hash
 	Votes  []*StampingVote
@@ -211,6 +212,7 @@ func NewHasVoteData(address common.Address, height uint64) *HasVoteData {
 
 type StampingVote struct {
 	Height  uint64
+	Hash    common.Hash // TODO: need verify
 	Address common.Address
 	Weight  uint64
 }

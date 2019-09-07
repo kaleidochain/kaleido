@@ -1176,9 +1176,9 @@ func (chain *Chain) gossipVote(p *peer) {
 		scStatus := chain.ChainStatus()
 		peerScStatus := p.ChainStatus()
 
-		//p.Log().Trace("gossip begin", "status", chain.StatusString())
+		p.Log().Trace("gossip begin", "status", chain.StatusString())
 
-		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height+gossipMaxHeightDiff {
+		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height {
 			needSleep = true
 			continue
 		}
@@ -1190,6 +1190,7 @@ func (chain *Chain) gossipVote(p *peer) {
 			}
 		}
 
+		//(C, H]
 		windowFloor := MaxUint64(scStatus.Candidate, peerScStatus.Candidate)
 		windowCeil := MinUint64(scStatus.Height, peerScStatus.Height)
 		if chain.PickBuildingSCVoteToPeer(windowFloor, windowCeil, p) {
