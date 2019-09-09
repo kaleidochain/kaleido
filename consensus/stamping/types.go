@@ -13,7 +13,7 @@ import (
 const (
 	StampingStatusMsg = 0x00
 	StampingVoteMsg   = 0x01
-	HasVoteMsg        = 0x02
+	HasSCVoteMsg      = 0x02
 )
 
 const msgChanSize = 4096
@@ -70,7 +70,7 @@ func (h *HeightVoteSet) hasVote(vote *StampingVote) bool {
 	return useSet.Has(vote.Address)
 }
 
-func (h *HeightVoteSet) SetHasVote(has *HasVoteData) {
+func (h *HeightVoteSet) SetHasVote(has *HasSCVoteData) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
@@ -198,13 +198,13 @@ func (sc *StampingCertificate) AddVote(vote *StampingVote) {
 	sc.Votes = append(sc.Votes, vote)
 }
 
-type HasVoteData struct {
+type HasSCVoteData struct {
 	Address common.Address
 	Height  uint64
 }
 
-func NewHasVoteData(address common.Address, height uint64) *HasVoteData {
-	return &HasVoteData{
+func NewHasSCVoteData(address common.Address, height uint64) *HasSCVoteData {
+	return &HasSCVoteData{
 		Address: address,
 		Height:  height,
 	}
@@ -229,8 +229,8 @@ func (vote *StampingVote) String() string {
 	return fmt.Sprintf("%d(%d) by %s", vote.Height, vote.Weight, vote.Address.String())
 }
 
-func (vote *StampingVote) ToHasVoteData() *HasVoteData {
-	return NewHasVoteData(vote.Address, vote.Height)
+func (vote *StampingVote) ToHasSCVoteData() *HasSCVoteData {
+	return NewHasSCVoteData(vote.Address, vote.Height)
 }
 
 type StampingVotes struct {

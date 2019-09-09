@@ -89,7 +89,7 @@ func (p *peer) sendVoteAndSetHasVoteNoLock(vote *StampingVote) {
 		from: p.id,
 	})
 
-	p.counter.SetHasVote(vote.ToHasVoteData())
+	p.counter.SetHasVote(vote.ToHasSCVoteData())
 	p.Log().Trace("SendVote OK", "vote", vote)
 }
 
@@ -118,7 +118,7 @@ func (p *peer) handleMsg() error {
 		case msg := <-p.recvChan:
 			switch msg.code {
 			case StampingVoteMsg:
-				p.counter.SetHasVote(msg.data.(*StampingVote).ToHasVoteData())
+				p.counter.SetHasVote(msg.data.(*StampingVote).ToHasSCVoteData())
 				p.chain.OnReceive(StampingVoteMsg, msg.data, p.string())
 			case StampingStatusMsg:
 				status := msg.data.(*StatusMsg)
@@ -126,8 +126,8 @@ func (p *peer) handleMsg() error {
 				if updated {
 					p.updateCounter(begin, end)
 				}
-			case HasVoteMsg:
-				p.counter.SetHasVote(msg.data.(*HasVoteData))
+			case HasSCVoteMsg:
+				p.counter.SetHasVote(msg.data.(*HasSCVoteData))
 			}
 		}
 	}
