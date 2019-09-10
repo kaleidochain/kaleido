@@ -274,6 +274,7 @@ type ChainConfig struct {
 	Ethash   *EthashConfig   `json:"ethash,omitempty"`
 	Clique   *CliqueConfig   `json:"clique,omitempty"`
 	Algorand *AlgorandConfig `json:"algorand,omitempty"`
+	Stamping *StampingConfig `json:"stamping,omitempty"`
 }
 
 // TurnConfig stands for TDN turn delivery network
@@ -331,6 +332,9 @@ type CommitteeConfig struct {
 	SoftCommitteeSize      uint64
 	CertCommitteeSize      uint64
 	NextCommitteeSize      uint64
+
+	StampingCommitteeThreshold uint64
+	StampingCommitteeSize      uint64
 }
 
 var (
@@ -346,8 +350,21 @@ var (
 		SoftCommitteeSize: 2990,
 		CertCommitteeSize: 1500,
 		NextCommitteeSize: 5000,
+
+		StampingCommitteeThreshold: 120,
+		StampingCommitteeSize:      100,
 	}
 )
+
+type StampingConfig struct {
+	B          uint64      `json:"b"`
+	BaseHeight uint64      `json:"baseHeight"`
+	BaseHash   common.Hash `json:"baseHash"`
+}
+
+func (c *StampingConfig) String() string {
+	return "stamping"
+}
 
 // String implements the fmt.Stringer interface.
 func (c *ChainConfig) String() string {

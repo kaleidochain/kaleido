@@ -86,6 +86,25 @@ func (mk *MinerKey) Seed(height uint64, parentSeed ed25519.VrfOutput256, parentH
 }
 
 func (mk *MinerKey) Sortition(height uint64, round, step uint32, parentSeed ed25519.VrfOutput256, parentState *state.StateDB, totalBalanceOfMiners *big.Int) (hash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64, err error) {
+	data := sortitionData{
+		mk.Miner, height, round, step, parentSeed,
+	}
+	threshold, totalNumber := GetCommitteeNumber(height, step)
+
+	return mk.sortition(height, data.Bytes(), parentSeed, parentState, totalBalanceOfMiners, threshold, totalNumber)
+}
+
+func (mk *MinerKey) StampingSortition(height uint64, parentSeed ed25519.VrfOutput256, parentState *state.StateDB, totalBalanceOfMiners *big.Int) (hash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64, err error) {
+	data := stampingSortitionData{
+		mk.Miner, height, parentSeed,
+	}
+	threshold, totalNumber := GetStampingCommitteeNumber(height)
+
+	return mk.sortition(height, data.Bytes(), parentSeed, parentState, totalBalanceOfMiners, threshold, totalNumber)
+}
+
+func (mk *MinerKey) sortition(height uint64, sortitionData []byte, parentSeed ed25519.VrfOutput256, parentState *state.StateDB,
+	totalBalanceOfMiners *big.Int, threshold, totalNumber uint64) (hash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64, err error) {
 	mk.mutex.RLock()
 	defer mk.mutex.RUnlock()
 
@@ -94,12 +113,8 @@ func (mk *MinerKey) Sortition(height uint64, round, step uint32, parentSeed ed25
 		return
 	}
 
-	data := sortitionData{
-		mk.Miner, height, round, step, parentSeed,
-	}
-
 	var ok bool
-	proof, ok = ed25519.VrfProve(&mk.VrfKey, data.Bytes())
+	proof, ok = ed25519.VrfProve(&mk.VrfKey, sortitionData)
 	if !ok {
 		err = errors.New("invalid vrf key")
 		return
@@ -113,8 +128,7 @@ func (mk *MinerKey) Sortition(height uint64, round, step uint32, parentSeed ed25
 
 	ownWeight, totalWeight := GetWeight(mk.config, mk.Miner, parentState, totalBalanceOfMiners, hash)
 
-	threshold, size := GetCommitteeNumber(height, step)
-	j = sortition.Choose(hash, ownWeight, threshold, size, totalWeight)
+	j = sortition.Choose(hash, ownWeight, threshold, totalNumber, totalWeight)
 
 	return
 }

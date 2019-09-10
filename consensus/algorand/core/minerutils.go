@@ -100,6 +100,17 @@ func (d *sortitionData) Bytes() []byte {
 	return data
 }
 
+type stampingSortitionData struct {
+	Miner      common.Address
+	Height     uint64
+	ParentSeed ed25519.VrfOutput256
+}
+
+func (d *stampingSortitionData) Bytes() []byte {
+	data, _ := rlp.EncodeToBytes(d)
+	return data
+}
+
 // GetWeight returns weight of a miner. It's caller's responsibility to check that addr is a miner of current block
 func GetWeight(config *params.AlgorandConfig, miner common.Address, stateDb *state.StateDB, totalBalanceOfMiners *big.Int, hash ed25519.VrfOutput256) (ownWeight, totalWeight uint64) {
 	ownBalance := state.GetBalanceWithFund(stateDb, miner)
@@ -190,4 +201,8 @@ func GetCommitteeNumber(height uint64, step uint32) (uint64, uint64) {
 	}
 
 	return params.CommitteeConfigv1.NextCommitteeThreshold, params.CommitteeConfigv1.NextCommitteeSize
+}
+
+func GetStampingCommitteeNumber(height uint64) (uint64, uint64) {
+	return params.CommitteeConfigv1.StampingCommitteeThreshold, params.CommitteeConfigv1.StampingCommitteeSize
 }

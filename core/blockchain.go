@@ -100,14 +100,15 @@ type BlockChain struct {
 	triegc *prque.Prque   // Priority queue mapping block numbers to tries to gc
 	gcproc time.Duration  // Accumulates canonical block processing for trie dumping
 
-	hc            *HeaderChain
-	rmLogsFeed    event.Feed
-	chainFeed     event.Feed
-	chainSideFeed event.Feed
-	chainHeadFeed event.Feed
-	logsFeed      event.Feed
-	scope         event.SubscriptionScope
-	genesisBlock  *types.Block
+	hc                *HeaderChain
+	rmLogsFeed        event.Feed
+	chainFeed         event.Feed
+	chainSideFeed     event.Feed
+	chainHeadFeed     event.Feed
+	logsFeed          event.Feed
+	chainStampingFeed event.Feed
+	scope             event.SubscriptionScope
+	genesisBlock      *types.Block
 
 	mu      sync.RWMutex // global mutex for locking chain operations
 	chainmu sync.RWMutex // blockchain insertion lock
@@ -1649,6 +1650,9 @@ func (bc *BlockChain) PostChainEvents(events []interface{}, logs []*types.Log) {
 
 		case ChainSideEvent:
 			bc.chainSideFeed.Send(ev)
+
+		case ChainStampingEvent:
+			bc.chainStampingFeed.Send(ev)
 		}
 	}
 }
@@ -1847,4 +1851,9 @@ func (bc *BlockChain) SubscribeChainSideEvent(ch chan<- ChainSideEvent) event.Su
 // SubscribeLogsEvent registers a subscription of []*types.Log.
 func (bc *BlockChain) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscription {
 	return bc.scope.Track(bc.logsFeed.Subscribe(ch))
+}
+
+// SubscribeLogsEvent registers a subscription of []*types.Log.
+func (bc *BlockChain) SubscribeStampingEvent(ch chan<- ChainStampingEvent) event.Subscription {
+	return bc.scope.Track(bc.chainStampingFeed.Subscribe(ch))
 }
