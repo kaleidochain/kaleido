@@ -351,8 +351,8 @@ var (
 		CertCommitteeSize: 1500,
 		NextCommitteeSize: 5000,
 
-		StampingCommitteeThreshold: 120,
-		StampingCommitteeSize:      100,
+		StampingCommitteeThreshold: 100,
+		StampingCommitteeSize:      120,
 	}
 )
 
