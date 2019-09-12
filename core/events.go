@@ -18,7 +18,6 @@ package core
 
 import (
 	"github.com/kaleidochain/kaleido/common"
-	"github.com/kaleidochain/kaleido/consensus/algorand/core"
 	"github.com/kaleidochain/kaleido/core/types"
 )
 
@@ -48,4 +47,4 @@ type ChainSideEvent struct {
 
 type ChainHeadEvent struct{ Block *types.Block }
 
-type ChainStampingEvent struct{ Vote *core.StampingVote }
+type ChainStampingEvent struct{ Vote *types.StampingVote }

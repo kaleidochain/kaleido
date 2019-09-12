@@ -12,7 +12,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/kaleidochain/kaleido/common"
-	algorand "github.com/kaleidochain/kaleido/consensus/algorand/core"
 	"github.com/kaleidochain/kaleido/core"
 	"github.com/kaleidochain/kaleido/params"
 )
@@ -771,7 +770,7 @@ func (chain *SCChain) broadcastMessage(msg message) {
 			peer.SendMsg(msg)
 		}
 	case StampingVoteMsg:
-		vote := msg.data.(*algorand.StampingVote)
+		vote := msg.data.(*types.StampingVote)
 		for _, peer := range chain.peers {
 			if peer.ChainStatus().Height >= vote.Height {
 				peer.SendSCVote(vote)
@@ -839,7 +838,7 @@ func (chain *SCChain) handleStampingEvent(stampingEvent core.ChainStampingEvent)
 func (chain *SCChain) handleMsg(msg message) {
 	switch msg.code {
 	case StampingVoteMsg:
-		vote := msg.data.(*algorand.StampingVote)
+		vote := msg.data.(*types.StampingVote)
 		if err := chain.handleStampingVote(vote); err != nil {
 			log.Error("handle vote failed", "vote", vote, "from", msg.from, "err", err)
 		}
@@ -862,7 +861,7 @@ func (chain *SCChain) handleUpdateStatus() {
 	})
 }
 
-func (chain *SCChain) handleStampingVote(vote *algorand.StampingVote) error {
+func (chain *SCChain) handleStampingVote(vote *types.StampingVote) error {
 	// verify
 	log.Trace("handleStampingVote", "vote", vote)
 	if vote == nil {
@@ -897,7 +896,7 @@ func (chain *SCChain) checkEnoughVotesAndAddToSCChain() (err error) {
 
 		for _, height := range enoughHeights {
 			//
-			var scVotes []*algorand.StampingVote
+			var scVotes []*types.StampingVote
 			votes := chain.buildingStampingVoteWindow[height]
 			for _, vote := range votes.votes {
 				scVotes = append(scVotes, vote)
@@ -970,7 +969,7 @@ func (chain *SCChain) checkBelowCEnoughVotesAndCount() {
 	log.Trace("check below C enough done", "max height", maxEnoughVotesHeight, "enough", len(enoughHeights))
 }
 
-func (chain *SCChain) addVoteAndCount(vote *algorand.StampingVote, threshold uint64) (added, enough bool, err error) {
+func (chain *SCChain) addVoteAndCount(vote *types.StampingVote, threshold uint64) (added, enough bool, err error) {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
@@ -992,7 +991,7 @@ func (chain *SCChain) addVoteAndCount(vote *algorand.StampingVote, threshold uin
 	return
 }
 
-func (chain *SCChain) processStampingVoteWindow(vote *algorand.StampingVote, window MapStampingVotes, threshold uint64) (added, enough bool, err error) {
+func (chain *SCChain) processStampingVoteWindow(vote *types.StampingVote, window MapStampingVotes, threshold uint64) (added, enough bool, err error) {
 	votes, ok := window[vote.Height]
 	if !ok {
 		votes = NewStampingVotes()
