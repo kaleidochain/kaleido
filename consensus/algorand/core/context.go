@@ -1374,7 +1374,7 @@ func (ctx *Context) sendProposal(value common.Hash, sortHash ed25519.VrfOutput25
 
 	proposalLeader := &ProposalLeaderData{
 		Value: value,
-		Credential: Credential{
+		Credential: types.Credential{
 			Address: proposer,
 			Height:  ctx.Height,
 			Round:   ctx.Round,
@@ -1429,7 +1429,7 @@ func (ctx *Context) sendVote(voteType uint32, value common.Hash, sortHash ed2551
 
 	vote := &VoteData{
 		Value: value,
-		Credential: Credential{
+		Credential: types.Credential{
 			Address: ctx.currentMiner,
 			Height:  ctx.Height,
 			Round:   ctx.Round,
@@ -1740,7 +1740,7 @@ func (ctx *Context) Stake() uint64 {
 	return weight
 }
 
-func (ctx *Context) makeStampingVote(block *types.Block) *StampingVote {
+func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
 	height := block.NumberU64()
 
 	sortitionHash, sortitionProof, sortitionWeight := ctx.stampingSortition(height)
@@ -1757,9 +1757,9 @@ func (ctx *Context) makeStampingVote(block *types.Block) *StampingVote {
 		return nil
 	}
 
-	vote := &StampingVote{
+	vote := &types.StampingVote{
 		Value: block.Hash(),
-		Credential: Credential{
+		Credential: types.Credential{
 			Address: ctx.currentMiner,
 			Height:  block.NumberU64(),
 			Round:   0,

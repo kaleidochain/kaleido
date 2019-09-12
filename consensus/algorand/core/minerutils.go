@@ -169,7 +169,7 @@ func GetMinerVerifier(config *params.AlgorandConfig, statedb *state.StateDB, min
 	}
 }
 
-func VerifySignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature ed25519.ForwardSecureSignature, credential *Credential, stateDb *state.StateDB, parentSeed ed25519.VrfOutput256, totalBalanceOfMiners *big.Int) error {
+func VerifySignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature ed25519.ForwardSecureSignature, credential *types.Credential, stateDb *state.StateDB, parentSeed ed25519.VrfOutput256, totalBalanceOfMiners *big.Int) error {
 	err := mv.VerifySignature(credential.Height, signBytes, signature)
 	if err != nil {
 		log.Warn("verify signature failed", "err", err)
