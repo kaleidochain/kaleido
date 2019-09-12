@@ -61,48 +61,18 @@ type StatusData struct {
 	Round  uint32
 }
 
-type Credential struct {
-	Address common.Address   `json:"address" gencodec:"required"`
-	Height  uint64           `json:"height" gencodec:"required"`
-	Round   uint32           `json:"round" gencodec:"required"`
-	Step    uint32           `json:"step" gencodec:"required"`
-	Proof   ed25519.VrfProof `json:"proof" gencodec:"required"`
-
-	// cached
-	Weight uint64 `json:"weight" rlp:"-"`
-}
-
-func NewCredentialFromCredentialStorage(storage *types.CredentialStorage, height uint64, round uint32, step uint32) Credential {
-	return Credential{
-		Address: storage.Address,
-		Height:  height,
-		Round:   round,
-		Step:    step,
-		Proof:   storage.Proof,
-	}
-}
-
-func (c *Credential) LessThan(other *Credential) bool {
-	return types.LessThanByProof(&c.Proof, &other.Proof)
-}
-
-func (c *Credential) String() string {
-	return fmt.Sprintf("%d/%d/%d(%d) by %s, %x",
-		c.Height, c.Round, c.Step, c.Weight, c.Address.String(), c.Proof[:3])
-}
-
 type ProposalLeaderData struct {
 	Value common.Hash
 
 	ESignValue ed25519.ForwardSecureSignature
-	Credential
+	types.Credential
 }
 
 func NewProposalLeaderDataFromStorage(value common.Hash, height uint64, storage *types.ProposalStorage) *ProposalLeaderData {
 	return &ProposalLeaderData{
 		Value:      value,
 		ESignValue: storage.ESignValue,
-		Credential: NewCredentialFromCredentialStorage(&storage.Credential, height, storage.Round, types.RoundStep1Proposal),
+		Credential: types.NewCredentialFromCredentialStorage(&storage.Credential, height, storage.Round, types.RoundStep1Proposal),
 	}
 }
 
@@ -131,14 +101,14 @@ type ProposalBlockData struct {
 	Block *types.Block
 
 	ESignValue ed25519.ForwardSecureSignature
-	Credential
+	types.Credential
 }
 
 func NewProposalBlockDataFromProposalStorage(leader *types.ProposalStorage, block *types.Block) *ProposalBlockData {
 	return &ProposalBlockData{
 		Block:      block,
 		ESignValue: leader.ESignValue,
-		Credential: NewCredentialFromCredentialStorage(&leader.Credential, block.NumberU64(), leader.Round, types.RoundStep1Proposal),
+		Credential: types.NewCredentialFromCredentialStorage(&leader.Credential, block.NumberU64(), leader.Round, types.RoundStep1Proposal),
 	}
 }
 
@@ -215,14 +185,14 @@ type VoteData struct {
 	Value      common.Hash                    `json:"value" gencodec:"required"`
 	ESignValue ed25519.ForwardSecureSignature `json:"eSignature" gencodec:"required"`
 
-	Credential `json:"credential" gencodec:"required"`
+	types.Credential `json:"credential" gencodec:"required"`
 }
 
 func NewVoteDataFromCertVoteStorage(storage *types.CertVoteStorage, height uint64, round uint32, value common.Hash) *VoteData {
 	return &VoteData{
 		Value:      value,
 		ESignValue: storage.ESignValue,
-		Credential: NewCredentialFromCredentialStorage(&storage.Credential, height, round, types.RoundStep3Certifying),
+		Credential: types.NewCredentialFromCredentialStorage(&storage.Credential, height, round, types.RoundStep3Certifying),
 	}
 }
 
@@ -261,23 +231,4 @@ type HasProposalData struct {
 
 func (data *HasProposalData) String() string {
 	return fmt.Sprintf("HasProposalData: %d/%d %x %s", data.Height, data.Round, data.Proof[:3], data.Value.TerminalString())
-}
-
-type StampingVote struct {
-	Value      common.Hash                    `json:"value" gencodec:"required"`
-	ESignValue ed25519.ForwardSecureSignature `json:"eSignature" gencodec:"required"`
-
-	Credential `json:"credential" gencodec:"required"`
-}
-
-func (vote *StampingVote) SignBytes() []byte {
-	return vote.Value[:]
-}
-
-func (vote *StampingVote) String() string {
-	return fmt.Sprintf("%s: %s %s",
-		"Stamping",
-		vote.Value.TerminalString(),
-		vote.Credential.String(),
-	)
 }

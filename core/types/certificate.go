@@ -100,6 +100,36 @@ func EqualToByProof(a, b *ed25519.VrfProof) bool {
 	return hashA == hashB
 }
 
+type Credential struct {
+	Address common.Address   `json:"address" gencodec:"required"`
+	Height  uint64           `json:"height" gencodec:"required"`
+	Round   uint32           `json:"round" gencodec:"required"`
+	Step    uint32           `json:"step" gencodec:"required"`
+	Proof   ed25519.VrfProof `json:"proof" gencodec:"required"`
+
+	// cached
+	Weight uint64 `json:"weight" rlp:"-"`
+}
+
+func NewCredentialFromCredentialStorage(storage *CredentialStorage, height uint64, round uint32, step uint32) Credential {
+	return Credential{
+		Address: storage.Address,
+		Height:  height,
+		Round:   round,
+		Step:    step,
+		Proof:   storage.Proof,
+	}
+}
+
+func (c *Credential) LessThan(other *Credential) bool {
+	return LessThanByProof(&c.Proof, &other.Proof)
+}
+
+func (c *Credential) String() string {
+	return fmt.Sprintf("%d/%d/%d(%d) by %s, %x",
+		c.Height, c.Round, c.Step, c.Weight, c.Address.String(), c.Proof[:3])
+}
+
 // For minimal storage
 type CredentialStorage struct {
 	Address common.Address   `json:"address" gencodec:"required"`

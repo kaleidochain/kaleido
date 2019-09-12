@@ -896,6 +896,11 @@ func (ctx *Context) receiveRoutine() {
 
 				vote := ctx.makeStampingVote(currentBlock)
 				ctx.eth.BlockChain().PostChainEvents([]interface{}{core.ChainStampingEvent{Vote: vote}}, nil)
+				log.Debug("make new stampingvote",
+					"hash", currentBlock.Hash(),
+					"number", currentBlock.NumberU64(),
+					"HRS", ctx.HRS(),
+					"vote", vote)
 
 				ctx.gotoState(&StateNewHeight{chainHeadBlock: currentBlock})
 			}
