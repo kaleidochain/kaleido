@@ -62,6 +62,11 @@ var (
 			TotalWeight:      big.NewInt(10000000000),
 			IntervalSize:     1000 * 1000,
 		},
+		Stamping: &StampingConfig{
+			B:          20,
+			BaseHeight: 0,
+			BaseHash:   common.Hash{},
+		},
 	}
 
 	KaleidoTestnetChainConfig = &ChainConfig{
@@ -83,6 +88,11 @@ var (
 			TimeoutTwoLambda: 2000,
 			TotalWeight:      big.NewInt(10000000000),
 			IntervalSize:     1000 * 1000,
+		},
+		Stamping: &StampingConfig{
+			B:          20,
+			BaseHeight: 0,
+			BaseHash:   common.Hash{},
 		},
 	}
 
