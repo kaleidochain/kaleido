@@ -71,8 +71,8 @@ func TestStampingSortition(t *testing.T) {
 
 	const threshold = 100
 	const totalNumber = 120
-	const ownWeight = 160
-	const totalWeight = 200
+	const ownWeight = 1600
+	const totalWeight = 2000
 	for i := 0; i < nTimes; i++ {
 		var vrfOutput ed25519.VrfOutput256
 		_, _ = rand.Read(vrfOutput[:])
@@ -82,9 +82,9 @@ func TestStampingSortition(t *testing.T) {
 		}
 	}
 
-	const expected = 35 * 0.8
+	const expected = 35.0
 	fs := float64(hitcount) / nTimes * 100
-	if fs <= expected-3 || fs >= expected+3 {
+	if fs <= expected-1 || fs >= expected+1 {
 		t.Errorf("wanted %f%% weight but got %f%%, hit=%d", expected, fs, hitcount)
 	}
 }
