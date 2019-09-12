@@ -104,6 +104,10 @@ type headerMarshaling struct {
 	TotalBalanceOfMiners *hexutil.Big
 }
 
+func (h *Header) NumberU64() uint64 {
+	return h.Number.Uint64()
+}
+
 func (h *Header) SetVersion(version uint64) {
 	h.Nonce = EncodeNonce(version)
 }

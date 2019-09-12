@@ -48,7 +48,4 @@ type ChainSideEvent struct {
 
 type ChainHeadEvent struct{ Block *types.Block }
 
-type ChainStampingEvent struct {
-	Block *types.Block
-	Vote  *core.StampingVote
-}
+type ChainStampingEvent struct{ Vote *core.StampingVote }

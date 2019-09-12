@@ -12,7 +12,6 @@ import (
 type peer struct {
 	id string
 
-	height   uint64
 	scStatus SCStatus
 	counter  *HeightVoteSet
 
@@ -23,7 +22,7 @@ type peer struct {
 	recvChan chan message
 	sendChan chan message
 
-	chain *Chain
+	chain *SCChain
 }
 
 func newPeer(id string) *peer {
@@ -36,7 +35,7 @@ func newPeer(id string) *peer {
 	}
 }
 
-func (p *peer) setChain(chain *Chain) {
+func (p *peer) setChain(chain *SCChain) {
 	p.chain = chain
 }
 
@@ -49,21 +48,18 @@ func (p *peer) Log() log.Logger {
 }
 
 func (p *peer) statusString() string {
-	return fmt.Sprintf("%d/%d/%d/%d", p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.height)
+	return fmt.Sprintf("%d/%d/%d/%d", p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.scStatus.Height)
 }
 
-func (p *peer) ChainStatus() StatusMsg {
+func (p *peer) ChainStatus() SCStatus {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
-	return StatusMsg{
-		SCStatus: p.scStatus,
-		Height:   p.height,
-	}
+	return p.scStatus
 }
 
 func (p *peer) string() string {
-	return fmt.Sprintf("%s-%d-%d-%d-%d", p.id, p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.height)
+	return fmt.Sprintf("%s-%d-%d-%d-%d", p.id, p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.scStatus.Height)
 }
 
 func (p *peer) SendSCVote(vote *core.StampingVote) error {
@@ -114,7 +110,7 @@ func (p *peer) send(msg message) {
 	}
 }
 
-func (p *peer) handleMsg() error {
+func (p *peer) handleMsg() {
 	for {
 		select {
 		case msg := <-p.recvChan:
@@ -123,7 +119,7 @@ func (p *peer) handleMsg() error {
 				p.counter.SetHasVote(ToHasSCVoteData(msg.data.(*core.StampingVote)))
 				p.chain.OnReceive(StampingVoteMsg, msg.data, p.string())
 			case StampingStatusMsg:
-				status := msg.data.(*StatusMsg)
+				status := msg.data.(*SCStatus)
 				begin, end, updated := p.updateStatus(*status)
 				if updated {
 					p.updateCounter(begin, end)
@@ -135,11 +131,11 @@ func (p *peer) handleMsg() error {
 	}
 }
 
-func (p *peer) updateStatus(msg StatusMsg) (uint64, uint64, bool) {
+func (p *peer) updateStatus(msg SCStatus) (uint64, uint64, bool) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	if msg.Candidate < p.scStatus.Candidate || msg.Height < p.height {
+	if msg.Candidate < p.scStatus.Candidate || msg.Height < p.scStatus.Height {
 		return 0, 0, false
 	}
 
@@ -148,8 +144,7 @@ func (p *peer) updateStatus(msg StatusMsg) (uint64, uint64, bool) {
 		"newer", fmt.Sprintf("%d/%d/%d/%d", msg.Fz, msg.Proof, msg.Candidate, msg.Height))
 
 	beforeC := p.scStatus.Candidate
-	p.scStatus = msg.SCStatus
-	p.height = msg.Height
+	p.scStatus = msg
 
 	return beforeC, p.scStatus.Candidate, true
 }
@@ -191,16 +186,14 @@ func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
 	return fmt.Errorf("selected no vote")
 }
 
-func makePairPeer(c1, c2 *Chain) {
+func makePairPeer(c1, c2 *SCChain) {
 	p1 := newPeer(c1.name + "-" + c2.name)
 	p1.setChain(c2)
 	p1.scStatus = c2.scStatus
-	p1.height = c2.currentHeight
 
 	p2 := newPeer(c2.name + "-" + c1.name)
 	p2.setChain(c1)
 	p2.scStatus = c1.scStatus
-	p2.height = c1.currentHeight
 
 	c1.AddPeer(p2)
 	c2.AddPeer(p1)

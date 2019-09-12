@@ -1,18 +1,6 @@
 package leap
 
-import (
-	"crypto/sha512"
-	"fmt"
-	"math/rand"
-	"os"
-	"testing"
-	"time"
-
-	"github.com/ethereum/go-ethereum/log"
-
-	"github.com/kaleidochain/kaleido/common"
-)
-
+/*
 type StampingMaker interface {
 	Make(height uint64, proofHeader *Header) *StampingCertificate
 }
@@ -43,7 +31,7 @@ type ChainReadWriter interface {
 	AddStampingCertificate(sc *StampingCertificate) error
 }
 
-type MultiChainWrapper []*Chain
+type MultiChainWrapper []*SCChain
 
 func (c MultiChainWrapper) Header(height uint64) *Header {
 	return c[0].Header(height)
@@ -96,7 +84,7 @@ func buildChainConcurrency(t *testing.T, config *Config, chain ChainReadWriter, 
 		}
 
 		switch c := chain.(type) {
-		case *Chain:
+		case *SCChain:
 			proofHeader := c.Header(height - config.B)
 			if s := maker.Make(height, proofHeader); s != nil {
 				s.AddVote(NewStampingVote(height, c.config.Address, c.config.StampingThreshold))
@@ -121,13 +109,13 @@ func buildChainConcurrency(t *testing.T, config *Config, chain ChainReadWriter, 
 	}
 }
 
-func buildDefaultChainByRandom(t *testing.T, maxHeight uint64) *Chain {
+func buildDefaultChainByRandom(t *testing.T, maxHeight uint64) *SCChain {
 	chain := NewChain(defaultConfig)
 	buildChainConcurrency(t, defaultConfig, chain, 1, maxHeight+1, randomStampingMaker(defaultConfig.FailureProbability))
 	return chain
 }
 
-func buildChainBySequence(t *testing.T, b uint64, maxHeight uint64, seq []uint64) *Chain {
+func buildChainBySequence(t *testing.T, b uint64, maxHeight uint64, seq []uint64) *SCChain {
 	config := &Config{
 		B:                  b,
 		FailureProbability: 0,
@@ -137,11 +125,11 @@ func buildChainBySequence(t *testing.T, b uint64, maxHeight uint64, seq []uint64
 	return chain
 }
 
-func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *Chain {
+func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *SCChain {
 	return buildChainBySequence(t, B, maxHeight, heights)
 }
 
-func ensureSyncOk(t *testing.T, a *Chain) (b, c, d *Chain) {
+func ensureSyncOk(t *testing.T, a *SCChain) (b, c, d *SCChain) {
 	b = NewChain(a.config)
 	b.AddPeerChain(a)
 	if err := b.Sync(); err != nil {
@@ -168,14 +156,6 @@ func ensureSyncOk(t *testing.T, a *Chain) (b, c, d *Chain) {
 		d.Print()
 		t.Fatal(err)
 	}
-
-	/*
-		a.Print()
-		fmt.Println("---------------------------------after b-----------------------------------------------------")
-		b.Print()
-		fmt.Println("---------------------------------after c-----------------------------------------------------")
-		c.Print()
-	*/
 
 	return
 }
@@ -851,7 +831,7 @@ func TestChainGossipP1SCP2NoSC(t *testing.T) {
 	time.Sleep(150 * 60 * time.Second)
 }
 
-func makeMultiChain(t *testing.T, chainNum int) []*Chain {
+func makeMultiChain(t *testing.T, chainNum int) []*SCChain {
 	maxHeight := uint64(20)
 	var configs []*Config
 	for i := 1; i <= chainNum; i++ {
@@ -916,18 +896,6 @@ func TestChainGossipP1P2P3(t *testing.T) {
 
 	makePairPeer(chains[0], chains[1])
 	makePairPeer(chains[1], chains[2])
-
-	/*
-		go func() {
-			for {
-				for i := range chains {
-					chains[i].Print()
-				}
-
-				time.Sleep(60 * time.Second)
-			}
-		}()
-	*/
 
 	time.Sleep(150 * 60 * time.Second)
 
@@ -1024,7 +992,7 @@ func TestChainSyncGossip(t *testing.T) {
 	buildChainConcurrency(t, config, a, 1, maxHeight, randomStampingMaker(config.FailureProbability))
 	b, c, d := ensureSyncOk(t, a)
 
-	var chains []*Chain
+	var chains []*SCChain
 	chains = append(chains, a, b, c, d)
 
 	for i := range chains {
@@ -1060,3 +1028,6 @@ func TestChainSyncGossip(t *testing.T) {
 
 	time.Sleep(20 * 60 * time.Second)
 }
+
+
+*/
