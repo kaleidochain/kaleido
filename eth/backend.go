@@ -26,6 +26,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kaleidochain/kaleido/leap"
+
 	"github.com/kaleidochain/kaleido/core/state"
 
 	"github.com/kaleidochain/kaleido/consensus/algorand"
@@ -91,6 +93,7 @@ type Ethereum struct {
 	blockchain      *core.BlockChain
 	protocolManager *ProtocolManager
 	lesServer       LesServer
+	scchain         *leap.SCChain
 
 	// DB interfaces
 	chainDb ethdb.Database // Block chain database
@@ -214,6 +217,8 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		log.Error("invalid extra data", "extra", config.MinerExtraData)
 		return nil, err
 	}
+
+	eth.scchain = leap.NewChain(eth, eth.chainConfig, eth.engine, config.NetworkId)
 
 	eth.APIBackend = &EthAPIBackend{eth, nil}
 	gpoParams := config.GPO

@@ -3,11 +3,11 @@ package leap
 import (
 	"errors"
 	"fmt"
-	"math/rand"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/kaleidochain/kaleido/consensus"
 	"github.com/kaleidochain/kaleido/core/types"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -49,20 +49,14 @@ type SCStatus struct {
 type MapStampingVotes map[uint64]*StampingVotes
 
 type SCChain struct {
-	config     *params.ChainConfig
-	blockChain *core.BlockChain
+	config *params.ChainConfig
+	eth    Backend
 
 	mutexChain sync.RWMutex
 	fcChain    map[uint64]*FinalCertificate
 	scChain    map[uint64]*StampingCertificate
 
 	scStatus SCStatus
-
-	name string
-
-	id      string
-	chains  []*SCChain
-	archive *SCChain
 
 	messageChan                chan message
 	buildingStampingVoteWindow MapStampingVotes
@@ -71,13 +65,13 @@ type SCChain struct {
 	checkNewTicker             *time.Ticker
 	counter                    *HeightVoteSet
 
-	peers []*peer
+	pm *ProtocolManager
 }
 
-func NewChain(bc *core.BlockChain, config *params.ChainConfig) *SCChain {
+func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, networkId uint64) *SCChain {
 	chain := &SCChain{
-		config:     config,
-		blockChain: bc,
+		config: config,
+		eth:    eth,
 
 		fcChain: make(map[uint64]*FinalCertificate),
 		scChain: make(map[uint64]*StampingCertificate),
@@ -89,39 +83,15 @@ func NewChain(bc *core.BlockChain, config *params.ChainConfig) *SCChain {
 	chain.checkNewTicker = time.NewTicker(checkNewSCInterval)
 	chain.counter = NewHeightVoteSet()
 
+	chain.pm = NewProtocolManager(eth, chain, config, engine, networkId)
+
+	chain.Start()
+
 	return chain
 }
 
 func (chain *SCChain) Start() {
 	go chain.handleLoop()
-}
-
-func (chain *SCChain) SetName(name string) {
-	chain.name = name
-}
-
-func (chain *SCChain) AddPeer(p *peer) {
-	chain.peers = append(chain.peers, p)
-
-	go chain.gossipVote(p)
-	go p.handleMsg()
-}
-
-func (chain *SCChain) AddPeerChain(peer *SCChain) {
-	peer.id = fmt.Sprintf("%d", len(chain.chains))
-	chain.chains = append(chain.chains, peer)
-}
-
-func (chain *SCChain) AddArchiveChain(archivePeer *SCChain) {
-	archivePeer.id = "archive"
-	chain.archive = archivePeer
-}
-
-func (chain *SCChain) getPeer() *SCChain {
-	return chain.chains[rand.Intn(len(chain.chains))]
-}
-func (chain *SCChain) getArchivePeer() *SCChain {
-	return chain.archive
 }
 
 func (chain *SCChain) FinalCertificate(height uint64) *FinalCertificate {
@@ -163,7 +133,7 @@ func (chain *SCChain) Header(height uint64) *types.Header {
 }
 
 func (chain *SCChain) header(height uint64) *types.Header {
-	return chain.blockChain.GetHeaderByNumber(height)
+	return chain.eth.BlockChain().GetHeaderByNumber(height)
 }
 
 func (chain *SCChain) hasHeader(height uint64) bool {
@@ -187,7 +157,7 @@ func (chain *SCChain) addHeaderWithHash(header *types.Header, hash common.Hash) 
 	}
 
 	// TODO: header validation needs to be refactored
-	n, err := chain.blockChain.InsertHeaderChain([]*types.Header{header}, 1)
+	n, err := chain.eth.BlockChain().InsertHeaderChain([]*types.Header{header}, 1)
 	if n != 1 {
 		return fmt.Errorf("header insert error, n = 0")
 	}
@@ -206,7 +176,7 @@ func (chain *SCChain) addHeader(header *types.Header) error {
 		return fmt.Errorf("next header(%d) ParentHash != header(%d).Hash", header.NumberU64()+1, header.NumberU64())
 	}
 	// TODO: header validation needs to be refactored
-	n, err := chain.blockChain.InsertHeaderChain([]*types.Header{header}, 1)
+	n, err := chain.eth.BlockChain().InsertHeaderChain([]*types.Header{header}, 1)
 	if n != 1 {
 		return fmt.Errorf("header insert error, n = 0")
 	}
@@ -542,30 +512,15 @@ func (chain *SCChain) ChainStatus() SCStatus {
 	return chain.scStatus
 }
 
-func (chain *SCChain) canSynchronize(other *SCChain) bool {
-	if *chain.config.Stamping != *other.config.Stamping {
-		return false
-	}
-
-	header := chain.header(0)
-	otherHeader := other.Header(0)
-
-	if header == nil || otherHeader == nil {
-		return false
-	}
-
-	return header.Hash() == otherHeader.Hash()
-}
-
-func (chain *SCChain) forwardSyncRangeByHeaderAndFinalCertificate(peer *SCChain, start, end uint64) error {
-	for height := start; height <= end && height <= peer.scStatus.Height; height++ {
+func (chain *SCChain) forwardSyncRangeByHeaderAndFinalCertificate(p *peer, start, end uint64) error {
+	for height := start; height <= end && height <= p.scStatus.Height; height++ {
 		if chain.hasHeader(height) {
 			continue
 		}
 
-		header, fc := peer.HeaderAndFinalCertificate(height)
+		header, fc := p.HeaderAndFinalCertificate(height)
 		if header == nil || fc == nil {
-			return fmt.Errorf("peer has no header or fc at height(%d)", height)
+			return fmt.Errorf("p has no header or fc at height(%d)", height)
 		}
 
 		if err := chain.addBlock(header, fc); err != nil {
@@ -576,13 +531,13 @@ func (chain *SCChain) forwardSyncRangeByHeaderAndFinalCertificate(peer *SCChain,
 	return nil
 }
 
-func (chain *SCChain) backwardSyncRangeOnlyByHeader(peer *SCChain, start, end uint64, endHash common.Hash) error {
+func (chain *SCChain) backwardSyncRangeOnlyByHeader(p *peer, start, end uint64, endHash common.Hash) error {
 	for height := end; height >= start; height-- {
 		if chain.hasHeader(height) {
 			continue
 		}
 
-		header := peer.Header(height)
+		header := p.Header(height)
 		if header == nil {
 			return fmt.Errorf("peer has no header(%d)", height)
 		}
@@ -672,9 +627,9 @@ type breadcrumb struct {
 	forwardFinalCertificate []*FinalCertificate
 }
 
-func (chain *SCChain) syncNextBreadcrumb(peer *SCChain, begin, end uint64) (nextBegin, nextEnd uint64, err error) {
+func (chain *SCChain) syncNextBreadcrumb(p *peer, begin, end uint64) (nextBegin, nextEnd uint64, err error) {
 	var bc *breadcrumb
-	bc, err = peer.getNextBreadcrumb(begin, end)
+	bc, err = p.GetNextBreadcrumb(begin, end)
 	if err != nil {
 		return
 	}
@@ -684,9 +639,9 @@ func (chain *SCChain) syncNextBreadcrumb(peer *SCChain, begin, end uint64) (next
 			tailLength := chain.getTailLength(begin)
 			neededBegin := bc.stampingHeader.Number.Uint64() - chain.config.Stamping.B
 			neededEnd := begin - 1 - tailLength
-			if err = chain.syncAllHeaders(peer, neededBegin, neededEnd); err != nil {
+			if err = chain.syncAllHeaders(p, neededBegin, neededEnd); err != nil {
 				// TODO: switch to full node
-				archive := chain.getArchivePeer()
+				archive := chain.pm.GetArchivePeer()
 				if err = chain.syncAllHeaders(archive, neededBegin, neededEnd); err != nil {
 					/*fmt.Printf("syncAllHeaders, peer:%s, begin:end=[%d, %d] [%d, %d], proof:%d, tailLength:%d\n",
 					peer.id, begin, end, neededBegin, neededEnd, bc.stampingHeader.Height-chain.config.Stamping.B, tailLength)*/
@@ -735,8 +690,8 @@ func (chain *SCChain) getTailLength(height uint64) (length uint64) {
 	return
 }
 
-func (chain *SCChain) syncAllHeaders(peer *SCChain, begin, end uint64) (err error) {
-	headers := peer.getAllHeaders(begin, end)
+func (chain *SCChain) syncAllHeaders(p *peer, begin, end uint64) (err error) {
+	headers := p.GetHeaders(begin, end)
 	if len(headers) == 0 || headers[len(headers)-1].NumberU64() != begin {
 		err = fmt.Errorf("peer do not have 'begin(%d)'", begin)
 		return
@@ -761,24 +716,6 @@ func (chain *SCChain) sendToMessageChan(msg message) {
 	}
 }
 
-func (chain *SCChain) broadcastMessage(msg message) {
-	switch msg.code {
-	case HasSCVoteMsg:
-		fallthrough
-	case StampingStatusMsg:
-		for _, peer := range chain.peers {
-			peer.SendMsg(msg)
-		}
-	case StampingVoteMsg:
-		vote := msg.data.(*types.StampingVote)
-		for _, peer := range chain.peers {
-			if peer.ChainStatus().Height >= vote.Height {
-				peer.SendSCVote(vote)
-			}
-		}
-	}
-}
-
 func sendToMessageChan(ch chan<- message, msg message) {
 	select {
 	case ch <- msg:
@@ -795,7 +732,7 @@ func (chain *SCChain) OnReceive(code uint64, data interface{}, from string) {
 
 func (chain *SCChain) handleLoop() {
 	chainStampingCh := make(chan core.ChainStampingEvent, chainStampingChanSize)
-	chainStampingSub := chain.blockChain.SubscribeStampingEvent(chainStampingCh)
+	chainStampingSub := chain.eth.BlockChain().SubscribeStampingEvent(chainStampingCh)
 	defer chainStampingSub.Unsubscribe()
 
 	for {
@@ -828,11 +765,7 @@ func (chain *SCChain) handleStampingEvent(stampingEvent core.ChainStampingEvent)
 
 	log.Trace("handleStampingEvent", "Status", chain.StatusString(), "vote", stampingEvent.Vote.String())
 
-	chain.broadcastMessage(message{
-		code: StampingVoteMsg,
-		data: stampingEvent.Vote,
-		from: chain.name,
-	})
+	chain.pm.Broadcast(StampingVoteMsg, stampingEvent.Vote)
 }
 
 func (chain *SCChain) handleMsg(msg message) {
@@ -851,14 +784,10 @@ func (chain *SCChain) handleUpdateStatus() {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
-	currentBlock := chain.blockChain.CurrentBlock()
+	currentBlock := chain.eth.BlockChain().CurrentBlock()
 	chain.scStatus.Height = currentBlock.NumberU64()
 
-	chain.broadcastMessage(message{
-		code: StampingStatusMsg,
-		data: &chain.scStatus,
-		from: chain.name,
-	})
+	chain.pm.Broadcast(StampingStatusMsg, &chain.scStatus)
 }
 
 func (chain *SCChain) handleStampingVote(vote *types.StampingVote) error {
@@ -874,11 +803,7 @@ func (chain *SCChain) handleStampingVote(vote *types.StampingVote) error {
 		return err
 	}
 
-	chain.broadcastMessage(message{
-		code: HasSCVoteMsg,
-		data: ToHasSCVoteData(vote),
-		from: chain.name,
-	})
+	chain.pm.Broadcast(HasSCVoteMsg, ToHasSCVoteData(vote))
 
 	return nil
 }
@@ -920,11 +845,7 @@ func (chain *SCChain) checkEnoughVotesAndAddToSCChain() (err error) {
 			}
 		}
 
-		chain.broadcastMessage(message{
-			code: StampingStatusMsg,
-			data: &chain.scStatus,
-			from: chain.name,
-		})
+		chain.pm.Broadcast(StampingStatusMsg, &chain.scStatus)
 	}
 	log.Trace("check enough done", "max height", maxEnoughVotesHeight)
 	return nil
@@ -1032,7 +953,7 @@ func (chain *SCChain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (sent b
 		if err := p.PickAndSend(sc.Votes); err == nil {
 			sent = true
 
-			p.Log().Info("gossipVoteData vote below F", "chain", chain.name, "status", chain.StatusString(),
+			p.Log().Info("gossipVoteData vote below F", "status", chain.StatusString(),
 				"send", height, "not send", fmt.Sprintf("%d-%d", startLog, endLog))
 			break
 		} else {
@@ -1056,7 +977,7 @@ func (chain *SCChain) PickBuildingSCVoteToPeer(begin, end uint64, p *peer) (sent
 		if err := p.PickBuildingAndSend(votes); err == nil {
 			sent = true
 
-			p.Log().Info("gossipVoteData vote between C and H", "chain", chain.name, "status", chain.StatusString(),
+			p.Log().Info("gossipVoteData vote between C and H", "status", chain.StatusString(),
 				"send", height, "not send", fmt.Sprintf("%d-%d", startLog, endLog))
 			break
 		} else {
@@ -1071,56 +992,15 @@ func (chain *SCChain) PickBuildingSCVoteToPeer(begin, end uint64, p *peer) (sent
 	return
 }
 
-func (chain *SCChain) gossipVote(p *peer) {
-	needSleep := false
-	for {
-		if needSleep {
-			time.Sleep(500 * time.Millisecond)
-		}
-		needSleep = false
-
-		scStatus := chain.ChainStatus()
-		peerScStatus := p.ChainStatus()
-
-		p.Log().Trace("gossip begin", "status", chain.StatusString())
-
-		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height {
-			needSleep = true
-			continue
-		}
-
-		if peerScStatus.Candidate < scStatus.Candidate {
-			if chain.pickFrozenSCVoteToPeer(peerScStatus.Candidate, scStatus.Candidate, p) {
-				needSleep = true
-				continue
-			}
-		}
-
-		//(C, H]
-		windowFloor := MaxUint64(scStatus.Candidate, peerScStatus.Candidate)
-		windowCeil := MinUint64(scStatus.Height, peerScStatus.Height)
-		if chain.PickBuildingSCVoteToPeer(windowFloor, windowCeil, p) {
-			needSleep = true
-			continue
-		}
-
-		needSleep = true
-	}
-}
-
 func (chain *SCChain) Sync() error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
-	peer := chain.getPeer()
+	peer := chain.pm.GetBestPeer()
 	return chain.sync(peer)
 }
 
-func (chain *SCChain) sync(peer *SCChain) error {
-	if !chain.canSynchronize(peer) {
-		return fmt.Errorf("cannot synchronize from this chain")
-	}
-
+func (chain *SCChain) sync(peer *peer) error {
 	// make BaseHeader exist as the genesis block header for stamping certificate
 	if !chain.hasHeader(chain.config.Stamping.BaseHeight) {
 		if common.EmptyHash(chain.config.Stamping.BaseHash) {

@@ -5,12 +5,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaleidochain/kaleido/core/types"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/consensus"
 	"github.com/kaleidochain/kaleido/core"
-	"github.com/kaleidochain/kaleido/core/types"
-	"github.com/kaleidochain/kaleido/event"
 	"github.com/kaleidochain/kaleido/p2p"
 	"github.com/kaleidochain/kaleido/p2p/enode"
 	"github.com/kaleidochain/kaleido/params"
@@ -28,9 +28,10 @@ type NodeInfo struct {
 }
 
 type ProtocolManager struct {
-	eth     Backend
-	config  *params.ChainConfig
-	scChain *SCChain
+	eth       Backend
+	config    *params.ChainConfig
+	networkId uint64
+	scChain   *SCChain
 
 	SubProtocols []p2p.Protocol
 	peers        *peerSet
@@ -40,11 +41,13 @@ type ProtocolManager struct {
 	wg sync.WaitGroup
 }
 
-func NewProtocolManager(eth Backend, chain *SCChain, config *params.ChainConfig, mux *event.TypeMux, engine consensus.Engine) *ProtocolManager {
+func NewProtocolManager(eth Backend, chain *SCChain, config *params.ChainConfig, engine consensus.Engine, networkId uint64) *ProtocolManager {
 	pm := &ProtocolManager{
-		eth:    eth,
-		config: config,
-		peers:  newPeerSet(),
+		eth:       eth,
+		config:    config,
+		networkId: networkId,
+		scChain:   chain,
+		peers:     newPeerSet(),
 	}
 
 	log.Info("Initialising Leap protocol", "versions", ProtocolVersions)
@@ -60,7 +63,7 @@ func NewProtocolManager(eth Backend, chain *SCChain, config *params.ChainConfig,
 			Length:  ProtocolLengths[i],
 			Run: func(p *p2p.Peer, rw p2p.MsgReadWriter) error {
 				log.Info("New leap peer connected", "version", version)
-				peer := newPeer(p, rw)
+				peer := newPeer(uint32(version), p, rw)
 				pm.wg.Add(1)
 				defer pm.wg.Done()
 				return pm.runPeer(peer)
@@ -88,7 +91,7 @@ func (pm *ProtocolManager) NodeInfo() *NodeInfo {
 func (pm *ProtocolManager) runPeer(p *peer) error {
 	// first update HR to bootstrap gossip
 	// handshake must be done at first
-	err := p.Handshake(pm.HR())
+	err := p.Handshake(pm.networkId, pm.eth.BlockChain().Genesis().Hash(), pm.scChain.ChainStatus())
 	if err != nil {
 		if err == io.EOF {
 			p.Log().Debug("peer closed on handshake")
@@ -105,7 +108,6 @@ func (pm *ProtocolManager) runPeer(p *peer) error {
 	go p.broadcaster()
 	defer pm.peers.Unregister(p)
 	go pm.gossipVotesLoop(p)
-	go pm.gossipDataLoop(p)
 
 	// main loop
 	for {
@@ -113,7 +115,7 @@ func (pm *ProtocolManager) runPeer(p *peer) error {
 			if err == io.EOF {
 				p.Log().Debug("peer closed")
 			} else {
-				p.Log().Error("Algorand handleLoop fail", "err", err)
+				p.Log().Error("Leap handleLoop fail", "err", err)
 			}
 			return err
 		}
@@ -132,69 +134,25 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 	defer msg.Discard()
 
 	switch msg.Code {
-	/*
-		case core.HandshakeMsg:
-			// Handshake messages should never arrive after the handshake
-			return errResp(ErrExtraHandshakeMsg, "uncontrolled handshake message")
 
-		case core.StatusMsg:
-			var status core.StatusData
-			if err := msg.Decode(&status); err != nil {
-				return errResp(ErrDecode, "msg %v: %v", msg, err)
-			}
-			p.UpdateHR(status.Height, status.Round)
+	case HandshakeMsg:
+		// Handshake messages should never arrive after the handshake
+		return errResp(ErrExtraHandshakeMsg, "uncontrolled handshake message")
 
-		case core.ProposalLeaderMsg:
-			var data core.ProposalLeaderData
-			if err := msg.Decode(&data); err != nil {
-				return errResp(ErrDecode, "msg %v: %v", msg, err)
-			}
-			p.UpdateHR(data.Height, data.Round)
-			p.SetHasProposalValue(data.ToHasProposalData())
-			pm.ctx.OnReceive(core.ProposalLeaderMsg, &data, p.String())
+	case StampingStatusMsg:
+		var status SCStatus
+		if err := msg.Decode(&status); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		p.updateStatus(status)
 
-		case core.ProposalBlockMsg:
-			var data core.ProposalBlockData
-			if err := msg.Decode(&data); err != nil {
-				return errResp(ErrDecode, "msg %v: %v", msg, err)
-			}
-			p.UpdateHR(data.Height, data.Round)
-			p.SetHasProposalBlock(data.ToHasProposalData())
-			pm.ctx.OnReceive(core.ProposalBlockMsg, &data, p.String())
-
-		case core.VoteMsg:
-			var data core.VoteData
-			if err := msg.Decode(&data); err != nil {
-				return errResp(ErrDecode, "msg %v: %v", msg, err)
-			}
-			p.UpdateHR(data.Height, data.Round)
-			p.SetHasVote(core.ToHasVote(&data))
-			pm.ctx.OnReceive(core.VoteMsg, &data, p.String())
-
-		case core.HasVoteMsg:
-			var data core.HasVoteData
-			if err := msg.Decode(&data); err != nil {
-				return errResp(ErrDecode, "msg %v: %v", msg, err)
-			}
-			p.UpdateHR(data.Height, data.Round)
-			p.SetHasVote(&data)
-
-		case core.HasProposalLeaderMsg:
-			var data core.HasProposalData
-			if err := msg.Decode(&data); err != nil {
-				return errResp(ErrDecode, "msg %v: %v", msg, err)
-			}
-			p.UpdateHR(data.Height, data.Round)
-			p.SetHasProposalValue(&data)
-
-		case core.HasProposalBlockMsg:
-			var data core.HasProposalData
-			if err := msg.Decode(&data); err != nil {
-				return errResp(ErrDecode, "msg %v: %v", msg, err)
-			}
-			p.UpdateHR(data.Height, data.Round)
-			p.SetHasProposalBlock(&data)
-	*/
+	case StampingVoteMsg:
+		var data types.StampingVote
+		if err := msg.Decode(&data); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		p.SetHasVote(ToHasSCVoteData(&data))
+		pm.scChain.OnReceive(StampingVoteMsg, &data, p.String())
 
 	default:
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
@@ -205,34 +163,21 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 
 func (pm *ProtocolManager) Broadcast(code uint64, data interface{}) {
 	switch code {
-	/*
-		case core.StatusMsg:
-			fallthrough
-		case core.HasVoteMsg:
-			fallthrough
-		case core.HasProposalLeaderMsg:
-			fallthrough
-		case core.HasProposalBlockMsg:
-			pm.peers.ForEach(func(p *peer) {
-				p.SendMsgAsync(code, data)
-			})
-		case core.ProposalLeaderMsg:
-			msg := data.(*core.ProposalLeaderData)
-			pm.peers.ForEach(func(p *peer) {
-				if p.height == msg.Height { // fast check without lock
-					p.SendProposalLeaderAsync(msg)
-				}
-			})
-		case core.VoteMsg:
-			msg := data.(*core.VoteData)
-			pm.peers.ForEach(func(p *peer) {
-				if p.height == msg.Height { // fast check without lock
-					p.SendVoteAsync(msg)
-				}
-			})
-	*/
+	case HasSCVoteMsg:
+		fallthrough
+	case StampingStatusMsg:
+		pm.peers.ForEach(func(p *peer) {
+			p.SendMsgAsync(code, data)
+		})
+	case StampingVoteMsg:
+		vote := data.(*types.StampingVote)
+		pm.peers.ForEach(func(p *peer) {
+			if p.ChainStatus().Height >= vote.Height {
+				p.SendStampingVoteAsync(vote)
+			}
+		})
 	default:
-		log.Error("Algorand broadcast ignore unknown message",
+		log.Error("Leap broadcast ignore unknown message",
 			"code", CodeToString[code], "data", data)
 	}
 }
@@ -243,9 +188,6 @@ func (pm *ProtocolManager) gossipVotesLoop(p *peer) {
 
 	p.Log().Debug("gossipVotesLoop start")
 	defer p.Log().Debug("gossipVotesLoop exit")
-
-	suppressLogForHeight := uint64(0)
-	suppressLogForRound := time.Now()
 
 	needSleep := false
 	for {
@@ -258,161 +200,45 @@ func (pm *ProtocolManager) gossipVotesLoop(p *peer) {
 			return
 		}
 
-		peerHeight, peerRound, _ := p.HR()
-		selfHeight, selfRound := pm.HR()
+		scStatus := pm.scChain.ChainStatus()
+		peerScStatus := p.ChainStatus()
 
-		if peerHeight == 0 || selfHeight == 0 { // gossip not enabled
+		p.Log().Trace("gossip begin", "status", pm.scChain.StatusString())
+
+		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height {
 			needSleep = true
 			continue
 		}
 
-		if peerHeight > selfHeight { // we are late
-			if suppressLogForHeight == 0 || suppressLogForHeight != peerHeight {
-				suppressLogForHeight = peerHeight
-				p.Log().Trace("gossipVotesLoop I am late, waiting sync",
-					"peer", peerHeight, "self", selfHeight)
-			}
-			needSleep = true
-			continue
-		}
-
-		if peerHeight+gossipMaxHeightDiff < selfHeight {
-			needSleep = true
-			continue
-		}
-
-		if peerHeight < selfHeight {
-			var roundVoteSet *core.RoundVoteSet = nil
-			var round uint32 = 0
-			if peerHeight+1 == selfHeight {
-				roundVoteSet, round = pm.getParentRoundVoteSet(peerHeight)
-			} else {
-				if certVotes, certVoteRound := pm.getCertVotesByHeight(peerHeight); certVotes != nil {
-					threshold, _ := core.GetCommitteeNumber(peerHeight, types.RoundStep3Certifying)
-					roundVoteSet = core.NewRoundVoteSetFromCertificates(certVotes, threshold)
-					round = certVoteRound
-				}
-			}
-
-			if sent := p.PickAndSend(roundVoteSet, peerHeight, round); sent {
-				p.Log().Debug("gossipVotesLoop peer is late on Height, send certificates(cached) to peer",
-					"peer", peerHeight, "self", selfHeight)
-				continue
-			}
-
-			needSleep = true
-			continue
-		}
-
-		// peerHeight == selfHeight
-
-		if peerRound < selfRound {
-			// pick and send next vote of peerRound
-			sent := p.PickNextVoteAndSend(pm.RoundVoteSet(selfHeight, selfRound-1), selfHeight, selfRound-1)
-			if sent {
-				p.Log().Debug("gossipVotesLoop peer is late on Round, send next vote to peer",
-					"peer", peerRound, "self", selfRound)
-				continue
-			}
-
-			needSleep = true
-			continue
-		}
-
-		if peerRound > selfRound { // we are late
-			if time.Now().Sub(suppressLogForRound) > 10*time.Second {
-				suppressLogForRound = time.Now()
-				p.Log().Trace("gossipVotesLoop I am late on Round, waiting for next vote of current height from peer",
-					"peer", peerRound, "self", selfRound)
-			}
-			needSleep = true
-			continue
-		}
-
-		// here peerRound == selfRound
-		sent := p.PickAndSend(pm.RoundVoteSet(selfHeight, selfRound), selfHeight, selfRound)
-		if sent {
-			p.Log().Debug("gossipVotesLoop pick a vote of current height to send", "height", selfHeight, "round", peerRound)
-
-			continue
-		}
-
-		if peerRound > 1 {
-			sent := p.PickNextVoteAndSend(pm.RoundVoteSet(selfHeight, selfRound-1), selfHeight, selfRound-1)
-			if sent {
-				p.Log().Debug("gossipVotesLoop pick a previous NextVote of current height to send", "height", selfHeight, "round", peerRound-1)
-
+		if peerScStatus.Candidate < scStatus.Candidate {
+			if pm.scChain.pickFrozenSCVoteToPeer(peerScStatus.Candidate, scStatus.Candidate, p) {
+				needSleep = true
 				continue
 			}
 		}
 
-		if time.Now().Sub(suppressLogForRound) > 10*time.Second {
-			suppressLogForRound = time.Now()
-			p.Log().Trace("gossipVotesLoop no vote to send, sleep a while")
+		//(C, H]
+		windowFloor := MaxUint64(scStatus.Candidate, peerScStatus.Candidate)
+		windowCeil := MinUint64(scStatus.Height, peerScStatus.Height)
+		if pm.scChain.PickBuildingSCVoteToPeer(windowFloor, windowCeil, p) {
+			needSleep = true
+			continue
 		}
+
 		needSleep = true
 	}
 }
 
-func (pm *ProtocolManager) HR() (uint64, uint32) {
-	return pm.ctx.HR()
+func (pm *ProtocolManager) GetBestPeer() *peer {
+	return pm.peers.GetBestPeer()
+}
+
+func (pm *ProtocolManager) GetArchivePeer() *peer {
+	return nil
 }
 
 func (pm *ProtocolManager) GossipInterval() time.Duration {
 	return pm.eth.GossipInterval()
-}
-
-func (pm *ProtocolManager) RoundVoteSet(height uint64, round uint32) *core.RoundVoteSet {
-	return pm.ctx.RoundVoteSet(height, round)
-}
-
-func (pm *ProtocolManager) GetLeaderProposalValue(height uint64, round uint32) *core.ProposalLeaderData {
-	return pm.ctx.GetProposalLeader(height, round)
-}
-
-func (pm *ProtocolManager) GetProposalBlock(height uint64, value common.Hash) *core.ProposalBlockData {
-	return pm.ctx.GetProposalBlock(height, value)
-}
-
-func (pm *ProtocolManager) getProposalBlockByHeight(height uint64) *core.ProposalBlockData {
-	block := pm.eth.BlockChain().GetBlockByNumber(height)
-	if block == nil {
-		return nil
-	}
-
-	// remove Certificate from header
-	headerNoCert := block.Header()
-	headerNoCert.Certificate = new(types.Certificate)
-
-	certificate := block.Certificate()
-	data := core.NewProposalBlockDataFromProposalStorage(&certificate.Proposal, block.WithSeal(headerNoCert))
-	return data
-}
-
-func (pm *ProtocolManager) getCertVotesByHeight(height uint64) ([]*core.VoteData, uint32) {
-	header := pm.eth.BlockChain().GetHeaderByNumber(height)
-	if header == nil {
-		return nil, types.BadRound
-	}
-
-	certificate := header.Certificate
-	votes := make([]*core.VoteData, len(certificate.CertVoteSet))
-	for i, certVote := range certificate.CertVoteSet {
-		if certVote == nil {
-			continue
-		}
-
-		votes[i] = core.NewVoteDataFromCertVoteStorage(certVote, height, certificate.Round, certificate.Value)
-	}
-	return votes, certificate.Round
-}
-
-func (pm *ProtocolManager) getParentProposalBlockData(height uint64) *core.ProposalBlockData {
-	return pm.ctx.GetParentProposalBlockData(height)
-}
-
-func (pm *ProtocolManager) getParentRoundVoteSet(height uint64) (*core.RoundVoteSet, uint32) {
-	return pm.ctx.GetParentRoundVoteSet(height)
 }
 
 func (pm *ProtocolManager) Sub(marker []byte, duration time.Duration) {

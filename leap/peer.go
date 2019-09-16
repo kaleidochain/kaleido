@@ -4,13 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-
-	"github.com/kaleidochain/kaleido/p2p"
-	"github.com/kaleidochain/kaleido/p2p/enode"
-
-	"github.com/kaleidochain/kaleido/core/types"
+	"time"
 
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/kaleidochain/kaleido/common"
+	"github.com/kaleidochain/kaleido/core/types"
+	"github.com/kaleidochain/kaleido/p2p"
+	"github.com/kaleidochain/kaleido/p2p/enode"
 )
 
 var (
@@ -19,39 +19,43 @@ var (
 	errNotRegistered     = errors.New("peer is not registered")
 )
 
+const (
+	handshakeTimeout = 5 * time.Second
+	msgQueueSize     = 1024
+)
+
 // peerIdKey returns id key for internal peer
 func peerIdKey(id enode.ID) string {
 	return id.TerminalString()
 }
 
 type peer struct {
-	id string
+	id      string
+	version uint32
 
 	*p2p.Peer
-	rw p2p.MsgReadWriter
+	rw        p2p.MsgReadWriter
+	closeChan chan struct{}
+	msgChan   chan message
+	voteChan  chan *types.StampingVote
 
 	scStatus SCStatus
 	counter  *HeightVoteSet
 
-	closeChan chan struct{}
-
 	mutex sync.RWMutex
-
-	recvChan chan message
-	sendChan chan message
 
 	chain *SCChain
 }
 
-func newPeer(p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
+func newPeer(version uint32, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
 	return &peer{
 		id:        peerIdKey(p.ID()),
 		Peer:      p,
 		rw:        rw,
 		counter:   NewHeightVoteSet(),
 		closeChan: make(chan struct{}),
-		recvChan:  make(chan message, msgChanSize),
-		sendChan:  make(chan message, msgChanSize),
+		msgChan:   make(chan message, msgQueueSize),
+		voteChan:  make(chan *types.StampingVote, msgQueueSize),
 	}
 }
 
@@ -61,6 +65,15 @@ func (p *peer) setChain(chain *SCChain) {
 
 func (p *peer) Close() {
 	close(p.closeChan)
+}
+
+func (p *peer) IsClosed() bool {
+	select {
+	case <-p.closeChan:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *peer) Log() log.Logger {
@@ -82,7 +95,73 @@ func (p *peer) string() string {
 	return fmt.Sprintf("%s-%d-%d-%d-%d", p.id, p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.scStatus.Height)
 }
 
-func (p *peer) SendSCVote(vote *types.StampingVote) error {
+func (p *peer) Handshake(networkId uint64, genesis common.Hash, status SCStatus) error {
+	// Send out own handshake in a new thread
+	errCh := make(chan error, 2)
+	var handshake HandshakeData // safe to read after two values have been received from errCh
+
+	go func() {
+		errCh <- p2p.Send(p.rw, HandshakeMsg, &HandshakeData{
+			Version:   p.version,
+			NetworkId: networkId,
+			Genesis:   genesis,
+			SCStatus: SCStatus{
+				Height:    status.Height,
+				Candidate: status.Candidate,
+				Proof:     status.Proof,
+				Fz:        status.Fz,
+			},
+		})
+	}()
+	go func() {
+		errCh <- p.readStatus(networkId, genesis, &handshake)
+	}()
+	timeout := time.NewTimer(handshakeTimeout)
+	defer timeout.Stop()
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				return err
+			}
+		case <-timeout.C:
+			return p2p.DiscReadTimeout
+		}
+	}
+
+	p.version = handshake.Version
+	p.updateStatus(handshake.SCStatus)
+	return nil
+}
+
+func (p *peer) readStatus(networkId uint64, genesis common.Hash, handshake *HandshakeData) (err error) {
+	msg, err := p.rw.ReadMsg()
+	if err != nil {
+		return err
+	}
+	if msg.Code != HandshakeMsg {
+		return errResp(ErrNoStatusMsg, "first msg has code %x (!= %x)", msg.Code, HandshakeMsg)
+	}
+	if msg.Size > ProtocolMaxMsgSize {
+		return errResp(ErrMsgTooLarge, "%v > %v", msg.Size, ProtocolMaxMsgSize)
+	}
+	// Decode the handshake and make sure everything matches
+	if err := msg.Decode(&handshake); err != nil {
+		return errResp(ErrDecode, "msg %v: %v", msg, err)
+	}
+	if handshake.Version != p.version {
+		return errResp(ErrProtocolVersionMismatch, "%d (!= %d)", handshake.Version, p.version)
+	}
+	if handshake.Genesis != genesis {
+		return errResp(ErrGenesisBlockMismatch, "%x (!= %x)", handshake.Genesis[:8], genesis[:8])
+	}
+	if handshake.NetworkId != networkId {
+		return errResp(ErrNetworkIdMismatch, "%d (!= %d)", handshake.NetworkId, networkId)
+	}
+	return nil
+}
+
+func (p *peer) SendStampingVote(vote *types.StampingVote) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -101,53 +180,36 @@ func (p *peer) SendSCVote(vote *types.StampingVote) error {
 }
 
 func (p *peer) sendVoteAndSetHasVoteNoLock(vote *types.StampingVote) {
-	p.send(message{
-		code: StampingVoteMsg,
-		data: vote,
-		from: p.id,
-	})
+	err := p2p.Send(p.rw, StampingVoteMsg, vote)
+	if err != nil {
+		p.Log().Debug("SendVote fail", "vote", vote, "err", err)
+		return
+	}
 
 	p.counter.SetHasVote(ToHasSCVoteData(vote))
 	p.Log().Trace("SendVote OK", "vote", vote)
 }
 
-func (p *peer) SendMsg(msg message) {
+func (p *peer) SetHasVote(data *HasSCVoteData) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	p.send(message{
-		code: msg.code,
-		data: msg.data,
-		from: p.id,
-	})
-}
-
-func (p *peer) send(msg message) {
-	select {
-	case p.sendChan <- msg:
-	default:
-		p.Log().Info("sendChan full, msg:%v", msg)
+	if data.Height <= p.scStatus.Candidate {
+		return
 	}
+
+	p.counter.SetHasVote(data)
+	p.Log().Trace("SetHasVote OK", "data", data, "Status", p.statusString())
 }
 
-func (p *peer) handleMsg() {
-	for {
-		select {
-		case msg := <-p.recvChan:
-			switch msg.code {
-			case StampingVoteMsg:
-				p.counter.SetHasVote(ToHasSCVoteData(msg.data.(*types.StampingVote)))
-				p.chain.OnReceive(StampingVoteMsg, msg.data, p.string())
-			case StampingStatusMsg:
-				status := msg.data.(*SCStatus)
-				begin, end, updated := p.updateStatus(*status)
-				if updated {
-					p.updateCounter(begin, end)
-				}
-			case HasSCVoteMsg:
-				p.counter.SetHasVote(msg.data.(*HasSCVoteData))
-			}
-		}
+func (p *peer) SendStatus(status *SCStatus) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	err := p2p.Send(p.rw, StampingStatusMsg, status)
+	if err != nil {
+		p.Log().Debug("SendVote fail", "status", status, "err", err)
+		return
 	}
 }
 
@@ -184,7 +246,7 @@ func (p *peer) PickAndSend(votes []*types.StampingVote) error {
 		return fmt.Errorf("has no vote to be selected, counter:%s", p.counter.Print(votes[0].Height))
 	}
 
-	if err := p.SendSCVote(vote); err == nil {
+	if err := p.SendStampingVote(vote); err == nil {
 	} // else {} ??
 
 	return nil
@@ -197,13 +259,67 @@ func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
 
 	for _, vote := range votes.votes {
 		if !p.counter.HasVote(vote) {
-			if err := p.SendSCVote(vote); err == nil {
+			if err := p.SendStampingVote(vote); err == nil {
 			} // else {} ??
 			return nil
 		}
 	}
 
 	return fmt.Errorf("selected no vote")
+}
+
+func (p *peer) SendMsgAsync(code uint64, data interface{}) {
+	select {
+	case p.msgChan <- message{code: code, data: data}:
+	default:
+		p.Log().Warn("msgChan full")
+	}
+}
+
+func (p *peer) SendStampingVoteAsync(vote *types.StampingVote) {
+	select {
+	case p.voteChan <- vote:
+	default:
+		p.Log().Warn("voteChan full")
+	}
+}
+
+func (p *peer) broadcaster() {
+	for {
+		select {
+		case <-p.closeChan:
+			return
+		case msg := <-p.msgChan:
+			err := p2p.Send(p.rw, msg.code, msg.data)
+			if err != nil {
+				p.Log().Debug("Send fail", "code", CodeToString[msg.code], "data", msg.data)
+			} else {
+				p.Log().Trace("Send sent OK", "code", CodeToString[msg.code], "data", msg.data)
+			}
+		case vote := <-p.voteChan:
+			p.SendStampingVote(vote)
+		}
+	}
+}
+
+func (p *peer) Header(height uint64) (header *types.Header) {
+	// TODO: need p2p
+	return
+}
+
+func (p *peer) GetHeaders(begin, end uint64) (headers []*types.Header) {
+	// TODO: need p2p
+	return
+}
+
+func (p *peer) HeaderAndFinalCertificate(height uint64) (header *types.Header, fc *FinalCertificate) {
+	// TODO: need p2p
+	return
+}
+
+func (p *peer) GetNextBreadcrumb(begin, end uint64) (bc *breadcrumb, err error) {
+	// TODO: need p2p
+	return
 }
 
 // peerSet represents the collection of active peers currently participating in
@@ -250,6 +366,18 @@ func (ps *peerSet) Unregister(p *peer) {
 	delete(ps.peers, p.id)
 	p.Close()
 	return
+}
+
+// Returm random peer
+func (ps *peerSet) GetBestPeer() *peer {
+	ps.lock.RLock()
+	defer ps.lock.RUnlock()
+
+	for _, p := range ps.peers {
+		return p
+	}
+
+	return nil
 }
 
 // Peer retrieves the registered peer with the given id.

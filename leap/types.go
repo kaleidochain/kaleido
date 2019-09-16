@@ -7,18 +7,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kaleidochain/kaleido/consensus/algorand/core"
+	"github.com/kaleidochain/kaleido/params"
+
+	"github.com/kaleidochain/kaleido/core/types"
 
 	"github.com/kaleidochain/kaleido/common"
 )
 
 const (
-	StampingStatusMsg = 0x00
-	StampingVoteMsg   = 0x01
-	HasSCVoteMsg      = 0x02
+	HandshakeMsg      = 0x00
+	StampingStatusMsg = 0x01
+	StampingVoteMsg   = 0x02
+	HasSCVoteMsg      = 0x03
 )
 
 var CodeToString = map[uint64]string{
+	HandshakeMsg:      "HandshakeMsg",
 	StampingStatusMsg: "StampingStatusMsg",
 	StampingVoteMsg:   "StampingVoteMsg",
 	HasSCVoteMsg:      "HasSCVoteMsg",
@@ -30,6 +34,13 @@ type message struct {
 	code uint64
 	data interface{}
 	from string
+}
+
+type HandshakeData struct {
+	Version   uint32
+	NetworkId uint64
+	Genesis   common.Hash
+	SCStatus
 }
 
 // UserSet
@@ -58,14 +69,14 @@ type HeightVoteSet struct {
 	mutex   sync.RWMutex
 }
 
-func (h *HeightVoteSet) HasVote(vote *core.StampingVote) bool {
+func (h *HeightVoteSet) HasVote(vote *types.StampingVote) bool {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
 
 	return h.hasVote(vote)
 }
 
-func (h *HeightVoteSet) hasVote(vote *core.StampingVote) bool {
+func (h *HeightVoteSet) hasVote(vote *types.StampingVote) bool {
 	if h.userSet == nil {
 		return false
 	}
@@ -93,11 +104,11 @@ func (h *HeightVoteSet) SetHasVote(has *HasSCVoteData) {
 	userSet.Add(has.Address)
 }
 
-func (h *HeightVoteSet) RandomNotIn(votes []*core.StampingVote) *core.StampingVote {
+func (h *HeightVoteSet) RandomNotIn(votes []*types.StampingVote) *types.StampingVote {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
 
-	var notInVotes []*core.StampingVote
+	var notInVotes []*types.StampingVote
 	for i := range votes {
 		if !h.hasVote(votes[i]) {
 			notInVotes = append(notInVotes, votes[i])
@@ -151,21 +162,26 @@ type FinalCertificate struct {
 	ParentRoot common.Hash
 }
 
-func NewFinalCertificate(header, parent *Header) *FinalCertificate {
+func NewFinalCertificate(header, parent *types.Header) *FinalCertificate {
 	return &FinalCertificate{
-		Height:     header.Height,
+		/*Height:     header.Height,
 		Hash:       header.Hash(),
 		ParentSeed: parent.Seed,
 		ParentRoot: parent.Root,
+
+		*/
 	}
 }
 
-func (fc *FinalCertificate) Verify(header, parent *Header) bool {
-	return fc.Height == header.Height &&
-		fc.Hash == header.Hash() &&
-		fc.Height == parent.Height+1 &&
-		fc.ParentSeed == parent.Seed &&
-		fc.ParentRoot == parent.Root
+func (fc *FinalCertificate) Verify(header, parent *types.Header) bool {
+	/*return fc.Height == header.Height &&
+	fc.Hash == header.Hash() &&
+	fc.Height == parent.Height+1 &&
+	fc.ParentSeed == parent.Seed &&
+	fc.ParentRoot == parent.Root
+
+	*/
+	return false
 }
 
 type StampingCertificate struct {
@@ -173,36 +189,44 @@ type StampingCertificate struct {
 	Hash   common.Hash // TODO: need verify
 	Seed   common.Hash
 	Root   common.Hash
-	Votes  []*core.StampingVote
+	Votes  []*types.StampingVote
 }
 
-func NewStampingCertificate(height uint64, proofHeader *Header) *StampingCertificate {
+func NewStampingCertificate(height uint64, proofHeader *types.Header) *StampingCertificate {
 	return &StampingCertificate{
-		Height: height,
-		Seed:   proofHeader.Seed,
-		Root:   proofHeader.Root,
+		/*
+			Height: height,
+			Seed:   proofHeader.Seed,
+			Root:   proofHeader.Root,
+		*/
 	}
 }
 
-func NewStampingCertificateWithVotes(height uint64, proofHeader *Header, votes []*core.StampingVote) *StampingCertificate {
+func NewStampingCertificateWithVotes(height uint64, proofHeader *types.Header, votes []*types.StampingVote) *StampingCertificate {
 	return &StampingCertificate{
-		Height: height,
-		Seed:   proofHeader.Seed,
-		Root:   proofHeader.Root,
-		Votes:  votes,
+		/*
+			Height: height,
+			Seed:   proofHeader.Seed,
+			Root:   proofHeader.Root,
+			Votes:  votes,
+		*/
 	}
 }
 
-func (sc *StampingCertificate) Verify(config *Config, header, proofHeader *Header) bool {
-	return sc.Height > config.HeightB() &&
-		sc.Height == header.Height &&
-		header.Height == proofHeader.Height+config.B &&
-		sc.Seed == proofHeader.Seed &&
-		sc.Root == proofHeader.Root
+func (sc *StampingCertificate) Verify(config *params.ChainConfig, header, proofHeader *types.Header) bool {
+	/*return sc.Height > config.HeightB() &&
+	sc.Height == header.Height &&
+	header.Height == proofHeader.Height+config.B &&
+	sc.Seed == proofHeader.Seed &&
+	sc.Root == proofHeader.Root
+
+	*/
 	// TODO: verify votes
+
+	return false
 }
 
-func (sc *StampingCertificate) AddVote(vote *core.StampingVote) {
+func (sc *StampingCertificate) AddVote(vote *types.StampingVote) {
 	sc.Votes = append(sc.Votes, vote)
 }
 
@@ -218,12 +242,12 @@ func NewHasSCVoteData(address common.Address, height uint64) *HasSCVoteData {
 	}
 }
 
-func ToHasSCVoteData(vote *core.StampingVote) *HasSCVoteData {
+func ToHasSCVoteData(vote *types.StampingVote) *HasSCVoteData {
 	return NewHasSCVoteData(vote.Address, vote.Height)
 }
 
 type StampingVotes struct {
-	votes  map[common.Address]*core.StampingVote
+	votes  map[common.Address]*types.StampingVote
 	weight uint64
 	ts     int64
 }
@@ -233,7 +257,7 @@ func (s *StampingVotes) hasVote(address common.Address) bool {
 	return ok
 }
 
-func (s *StampingVotes) addVote(vote *core.StampingVote) {
+func (s *StampingVotes) addVote(vote *types.StampingVote) {
 	s.votes[vote.Address] = vote
 }
 
@@ -243,6 +267,6 @@ func (s *StampingVotes) setEnoughTs() {
 
 func NewStampingVotes() *StampingVotes {
 	return &StampingVotes{
-		votes: make(map[common.Address]*core.StampingVote),
+		votes: make(map[common.Address]*types.StampingVote),
 	}
 }

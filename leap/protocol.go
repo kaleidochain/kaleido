@@ -39,6 +39,8 @@ const (
 	ErrNoStatusMsg
 	ErrExtraHandshakeMsg
 	ErrSuspendedPeer
+	ErrNetworkIdMismatch
+	ErrGenesisBlockMismatch
 )
 
 func (e errCode) String() string {
@@ -54,6 +56,8 @@ var errorToString = map[int]string{
 	ErrNoStatusMsg:             "No status message",
 	ErrExtraHandshakeMsg:       "Extra handshake message",
 	ErrSuspendedPeer:           "Suspended peer",
+	ErrNetworkIdMismatch:       "NetworkId mismatch",
+	ErrGenesisBlockMismatch:    "Genesis block mismatch",
 }
 
 func errResp(code errCode, format string, v ...interface{}) error {
