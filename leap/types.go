@@ -18,6 +18,12 @@ const (
 	HasSCVoteMsg      = 0x02
 )
 
+var CodeToString = map[uint64]string{
+	StampingStatusMsg: "StampingStatusMsg",
+	StampingVoteMsg:   "StampingVoteMsg",
+	HasSCVoteMsg:      "HasSCVoteMsg",
+}
+
 const msgChanSize = 4096
 
 type message struct {

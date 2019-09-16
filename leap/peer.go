@@ -1,16 +1,34 @@
 package leap
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
-	"github.com/kaleidochain/kaleido/consensus/algorand/core"
+	"github.com/kaleidochain/kaleido/p2p"
+	"github.com/kaleidochain/kaleido/p2p/enode"
+
+	"github.com/kaleidochain/kaleido/core/types"
 
 	"github.com/ethereum/go-ethereum/log"
 )
 
+var (
+	errClosed            = errors.New("peer set is closed")
+	errAlreadyRegistered = errors.New("peer is already registered")
+	errNotRegistered     = errors.New("peer is not registered")
+)
+
+// peerIdKey returns id key for internal peer
+func peerIdKey(id enode.ID) string {
+	return id.TerminalString()
+}
+
 type peer struct {
 	id string
+
+	*p2p.Peer
+	rw p2p.MsgReadWriter
 
 	scStatus SCStatus
 	counter  *HeightVoteSet
@@ -25,9 +43,11 @@ type peer struct {
 	chain *SCChain
 }
 
-func newPeer(id string) *peer {
+func newPeer(p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
 	return &peer{
-		id:        id,
+		id:        peerIdKey(p.ID()),
+		Peer:      p,
+		rw:        rw,
 		counter:   NewHeightVoteSet(),
 		closeChan: make(chan struct{}),
 		recvChan:  make(chan message, msgChanSize),
@@ -62,7 +82,7 @@ func (p *peer) string() string {
 	return fmt.Sprintf("%s-%d-%d-%d-%d", p.id, p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.scStatus.Height)
 }
 
-func (p *peer) SendSCVote(vote *core.StampingVote) error {
+func (p *peer) SendSCVote(vote *types.StampingVote) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -80,7 +100,7 @@ func (p *peer) SendSCVote(vote *core.StampingVote) error {
 	return nil
 }
 
-func (p *peer) sendVoteAndSetHasVoteNoLock(vote *core.StampingVote) {
+func (p *peer) sendVoteAndSetHasVoteNoLock(vote *types.StampingVote) {
 	p.send(message{
 		code: StampingVoteMsg,
 		data: vote,
@@ -116,7 +136,7 @@ func (p *peer) handleMsg() {
 		case msg := <-p.recvChan:
 			switch msg.code {
 			case StampingVoteMsg:
-				p.counter.SetHasVote(ToHasSCVoteData(msg.data.(*core.StampingVote)))
+				p.counter.SetHasVote(ToHasSCVoteData(msg.data.(*types.StampingVote)))
 				p.chain.OnReceive(StampingVoteMsg, msg.data, p.string())
 			case StampingStatusMsg:
 				status := msg.data.(*SCStatus)
@@ -154,7 +174,7 @@ func (p *peer) updateCounter(begin, end uint64) {
 	p.Log().Debug("remote counter", "begin", begin, "end", end)
 }
 
-func (p *peer) PickAndSend(votes []*core.StampingVote) error {
+func (p *peer) PickAndSend(votes []*types.StampingVote) error {
 	if len(votes) == 0 {
 		return fmt.Errorf("has no votes")
 	}
@@ -186,32 +206,86 @@ func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
 	return fmt.Errorf("selected no vote")
 }
 
-func makePairPeer(c1, c2 *SCChain) {
-	p1 := newPeer(c1.name + "-" + c2.name)
-	p1.setChain(c2)
-	p1.scStatus = c2.scStatus
+// peerSet represents the collection of active peers currently participating in
+// the Ethereum sub-protocol.
+type peerSet struct {
+	peers  map[string]*peer
+	lock   sync.RWMutex
+	closed bool
+}
 
-	p2 := newPeer(c2.name + "-" + c1.name)
-	p2.setChain(c1)
-	p2.scStatus = c1.scStatus
+// newPeerSet creates a new peer set to track the active participants.
+func newPeerSet() *peerSet {
+	return &peerSet{
+		peers: make(map[string]*peer),
+	}
+}
 
-	c1.AddPeer(p2)
-	c2.AddPeer(p1)
+// Register injects a new peer into the working set, or returns an error if the
+// peer is already known.
+func (ps *peerSet) Register(p *peer) error {
+	ps.lock.Lock()
+	defer ps.lock.Unlock()
 
-	go func() {
-		for {
-			select {
-			case msg := <-p1.sendChan:
-				p2.recvChan <- msg
-			case msg := <-p2.sendChan:
-				p1.recvChan <- msg
-			case <-p1.closeChan:
-				p1.Log().Info("Closed")
-				return
-			case <-p2.closeChan:
-				p2.Log().Info("Closed")
-				return
-			}
-		}
-	}()
+	if ps.closed {
+		return errClosed
+	}
+	if _, ok := ps.peers[p.id]; ok {
+		return errAlreadyRegistered
+	}
+	ps.peers[p.id] = p
+	return nil
+}
+
+// Unregister removes a remote peer from the active set, disabling any further
+// actions to/from that particular entity.
+func (ps *peerSet) Unregister(p *peer) {
+	ps.lock.Lock()
+	defer ps.lock.Unlock()
+
+	if _, ok := ps.peers[p.id]; !ok {
+		log.Warn("PeerSet has no this peer", "peer", p.id)
+		return
+	}
+	delete(ps.peers, p.id)
+	p.Close()
+	return
+}
+
+// Peer retrieves the registered peer with the given id.
+func (ps *peerSet) Peer(id enode.ID) *peer {
+	ps.lock.RLock()
+	defer ps.lock.RUnlock()
+
+	return ps.peers[peerIdKey(id)]
+}
+
+// Len returns if the current number of peers in the set.
+func (ps *peerSet) Len() int {
+	ps.lock.RLock()
+	defer ps.lock.RUnlock()
+
+	return len(ps.peers)
+}
+
+// Close disconnects all peers.
+// No new peers can be registered after Close has returned.
+func (ps *peerSet) Close() {
+	ps.lock.Lock()
+	defer ps.lock.Unlock()
+
+	for _, p := range ps.peers {
+		p.Disconnect(p2p.DiscQuitting)
+	}
+	ps.closed = true
+}
+
+// ForEach for each peer call function `do`
+func (ps *peerSet) ForEach(do func(*peer)) {
+	ps.lock.RLock()
+	defer ps.lock.RUnlock()
+
+	for _, p := range ps.peers {
+		do(p)
+	}
 }
