@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
+
+	"github.com/kaleidochain/kaleido/consensus/algorand/core"
 
 	"github.com/kaleidochain/kaleido/p2p"
 	"github.com/kaleidochain/kaleido/p2p/enode"
@@ -19,21 +22,28 @@ var (
 	errNotRegistered     = errors.New("peer is not registered")
 )
 
+const (
+	handshakeTimeout = 5 * time.Second
+	msgQueueSize     = 1024
+)
+
 // peerIdKey returns id key for internal peer
 func peerIdKey(id enode.ID) string {
 	return id.TerminalString()
 }
 
 type peer struct {
-	id string
+	id      string
+	version uint32
 
 	*p2p.Peer
-	rw p2p.MsgReadWriter
+	rw        p2p.MsgReadWriter
+	closeChan chan struct{}
+	msgChan   chan message
+	voteChan  chan *types.StampingVote
 
 	scStatus SCStatus
 	counter  *HeightVoteSet
-
-	closeChan chan struct{}
 
 	mutex sync.RWMutex
 
@@ -50,6 +60,8 @@ func newPeer(p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
 		rw:        rw,
 		counter:   NewHeightVoteSet(),
 		closeChan: make(chan struct{}),
+		msgChan:   make(chan message, msgQueueSize),
+		voteChan:  make(chan *types.StampingVote, msgQueueSize),
 		recvChan:  make(chan message, msgChanSize),
 		sendChan:  make(chan message, msgChanSize),
 	}
@@ -61,6 +73,15 @@ func (p *peer) setChain(chain *SCChain) {
 
 func (p *peer) Close() {
 	close(p.closeChan)
+}
+
+func (p *peer) IsClosed() bool {
+	select {
+	case <-p.closeChan:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *peer) Log() log.Logger {
@@ -80,6 +101,64 @@ func (p *peer) ChainStatus() SCStatus {
 
 func (p *peer) string() string {
 	return fmt.Sprintf("%s-%d-%d-%d-%d", p.id, p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.scStatus.Height)
+}
+
+func (p *peer) Handshake(status SCStatus) error {
+	// Send out own handshake in a new thread
+	errCh := make(chan error, 2)
+	var handshake HandshakeData // safe to read after two values have been received from errCh
+
+	go func() {
+		errCh <- p2p.Send(p.rw, HandshakeMsg, &HandshakeData{
+			Version: uint32(p.version),
+			SCStatus: SCStatus{
+				Height:    status.Height,
+				Candidate: status.Candidate,
+				Proof:     status.Proof,
+				Fz:        status.Fz,
+			},
+		})
+	}()
+	go func() {
+		errCh <- p.readStatus(&handshake)
+	}()
+	timeout := time.NewTimer(handshakeTimeout)
+	defer timeout.Stop()
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				return err
+			}
+		case <-timeout.C:
+			return p2p.DiscReadTimeout
+		}
+	}
+
+	p.version = handshake.Version
+	p.updateStatus(handshake.SCStatus)
+	return nil
+}
+
+func (p *peer) readStatus(handshake *HandshakeData) (err error) {
+	msg, err := p.rw.ReadMsg()
+	if err != nil {
+		return err
+	}
+	if msg.Code != HandshakeMsg {
+		return errResp(ErrNoStatusMsg, "first msg has code %x (!= %x)", msg.Code, HandshakeMsg)
+	}
+	if msg.Size > ProtocolMaxMsgSize {
+		return errResp(ErrMsgTooLarge, "%v > %v", msg.Size, ProtocolMaxMsgSize)
+	}
+	// Decode the handshake and make sure everything matches
+	if err := msg.Decode(&handshake); err != nil {
+		return errResp(ErrDecode, "msg %v: %v", msg, err)
+	}
+	if handshake.Version != p.version {
+		return errResp(ErrProtocolVersionMismatch, "%d (!= %d)", handshake.Version, p.version)
+	}
+	return nil
 }
 
 func (p *peer) SendSCVote(vote *types.StampingVote) error {
@@ -109,6 +188,18 @@ func (p *peer) sendVoteAndSetHasVoteNoLock(vote *types.StampingVote) {
 
 	p.counter.SetHasVote(ToHasSCVoteData(vote))
 	p.Log().Trace("SendVote OK", "vote", vote)
+}
+
+func (p *peer) SetHasVote(data *HasSCVoteData) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if data.Height <= p.scStatus.Candidate {
+		return
+	}
+
+	p.counter.SetHasVote(data)
+	p.Log().Trace("SetHasVote OK", "data", data, "Status", p.statusString())
 }
 
 func (p *peer) SendMsg(msg message) {
@@ -204,6 +295,24 @@ func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
 	}
 
 	return fmt.Errorf("selected no vote")
+}
+
+func (p *peer) broadcaster() {
+	for {
+		select {
+		case <-p.closeChan:
+			return
+		case msg := <-p.msgChan:
+			err := p2p.Send(p.rw, msg.code, msg.data)
+			if err != nil {
+				p.Log().Debug("Send fail", "code", core.CodeToString[msg.code], "data", msg.data)
+			} else {
+				p.Log().Trace("Send sent OK", "code", core.CodeToString[msg.code], "data", msg.data)
+			}
+		case vote := <-p.voteChan:
+			p.SendSCVote(vote)
+		}
+	}
 }
 
 // peerSet represents the collection of active peers currently participating in
