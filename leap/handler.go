@@ -134,7 +134,6 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 	defer msg.Discard()
 
 	switch msg.Code {
-
 	case HandshakeMsg:
 		// Handshake messages should never arrive after the handshake
 		return errResp(ErrExtraHandshakeMsg, "uncontrolled handshake message")
@@ -153,7 +152,6 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 		}
 		p.SetHasVote(ToHasSCVoteData(&data))
 		pm.scChain.OnReceive(StampingVoteMsg, &data, p.String())
-
 	default:
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
 	}
