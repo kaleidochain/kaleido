@@ -17,6 +17,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -136,17 +137,15 @@ func verifyProofForAddress(address common.Address, minerContract *state.MinerCon
 func VerifyProof(config *params.AlgorandConfig, stateRoot common.Hash, height uint64, leader common.Address, cvs []*types.CertVoteStorage, proof types.NodeList) error {
 	nodeSet := proof.NodeSet()
 
-	/*reads*/
-	_, err := verifyProofNodeSet(config, stateRoot, height, leader, cvs, nodeSet)
+	reads, err := verifyProofNodeSet(config, stateRoot, height, leader, cvs, nodeSet)
 	if err != nil {
 		return err
 	}
 
-	// TODO: need check
 	// check if all nodes have been read by VerifyProof
-	//if reads != len(proof) {
-	//	return errors.New("useless nodes in merkle proof nodeset")
-	//}
+	if reads != len(proof) {
+		return errors.New("useless nodes in merkle proof nodeset")
+	}
 
 	return nil
 }
