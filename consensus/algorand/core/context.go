@@ -1338,7 +1338,7 @@ func (ctx *Context) sortition() (hash ed25519.VrfOutput256, proof ed25519.VrfPro
 
 	mk, err := ctx.mkm.GetMinerKey(ctx.currentMiner, ctx.Height)
 	if err != nil {
-		log.Warn("GetMinerKey failed", "err", err, "HRS", ctx.HRS(), "miner", ctx.currentMiner)
+		log.Debug("GetMinerKey failed", "err", err, "HRS", ctx.HRS(), "miner", ctx.currentMiner)
 		return
 	}
 
@@ -1368,7 +1368,7 @@ func (ctx *Context) sendProposal(value common.Hash, sortHash ed25519.VrfOutput25
 
 	mk, err := ctx.mkm.GetMinerKey(proposer, ctx.Height)
 	if err != nil {
-		log.Warn("GetMinerKey failed", "err", err, "HRS", ctx.HRS(), "miner", proposer)
+		log.Error("GetMinerKey failed", "err", err, "HRS", ctx.HRS(), "miner", proposer)
 		return
 	}
 
@@ -1423,7 +1423,7 @@ func (ctx *Context) sendVote(voteType uint32, value common.Hash, sortHash ed2551
 
 	mk, err := ctx.mkm.GetMinerKey(ctx.currentMiner, ctx.Height)
 	if err != nil {
-		log.Warn("GetMinerKey failed", "err", err, "HRS", ctx.HRS(), "miner", ctx.currentMiner)
+		log.Error("GetMinerKey failed", "err", err, "HRS", ctx.HRS(), "miner", ctx.currentMiner)
 		return
 	}
 
@@ -1502,7 +1502,7 @@ func (ctx *Context) NewBlock() error {
 
 	mk, err := ctx.mkm.GetMinerKey(ctx.currentMiner, height.Uint64())
 	if err != nil {
-		log.Warn("GetMinerKey failed", "err", err, "HRS", ctx.HRS(), "miner", ctx.currentMiner)
+		log.Error("GetMinerKey failed", "err", err, "HRS", ctx.HRS(), "miner", ctx.currentMiner)
 		return err
 	}
 

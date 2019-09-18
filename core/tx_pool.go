@@ -647,6 +647,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return err
 		}
 
+		if contractGas > pool.currentMaxGas {
+			return ErrGasLimit
+		}
+
 		cost := new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(contractGas))
 		creator := syscon.CreatorOrSelf(pool.currentState, tx.To())
 
