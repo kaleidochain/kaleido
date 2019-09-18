@@ -88,8 +88,6 @@ func BuildProof(config *params.AlgorandConfig, stateDb *state.StateDB, stateRoot
 		}
 	}
 
-	_, err = verifyProofNodeSet(config, stateRoot, height, leader, cvs, proofDb)
-
 	return
 }
 
