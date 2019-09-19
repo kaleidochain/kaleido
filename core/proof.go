@@ -60,7 +60,13 @@ func proveForAddress(address common.Address, stateDb *state.StateDB, height uint
 	return
 }
 
-func BuildProof(config *params.AlgorandConfig, stateDb *state.StateDB, stateRoot common.Hash, height uint64, leader common.Address, cvs []*types.CertVoteStorage, proofDb *types.NodeSet) (err error) {
+func BuildProofForStorage(config *params.AlgorandConfig, stateDb *state.StateDB, stateRoot common.Hash, height uint64, leader common.Address, cvs []*types.CertVoteStorage, proofDb *types.NodeSet) (err error) {
+	addresses := getCommitteeAddresses(cvs, leader)
+
+	return BuildProof(config, stateDb, height, addresses, proofDb)
+}
+
+func BuildProof(config *params.AlgorandConfig, stateDb *state.StateDB, height uint64, addresses []common.Address, proofDb *types.NodeSet) (err error) {
 	minerContract := state.NewMinerContract(config)
 
 	err = stateDb.Prove(contracts.MinerAddress, 0, proofDb)
@@ -68,21 +74,8 @@ func BuildProof(config *params.AlgorandConfig, stateDb *state.StateDB, stateRoot
 		return
 	}
 
-	leaderNotIncluded := true
-
-	for _, cert := range cvs {
-		err = proveForAddress(cert.Credential.Address, stateDb, height, minerContract, proofDb)
-		if err != nil {
-			return
-		}
-
-		if leaderNotIncluded && cert.Credential.Address == leader {
-			leaderNotIncluded = false
-		}
-	}
-
-	if leaderNotIncluded {
-		err = proveForAddress(leader, stateDb, height, minerContract, proofDb)
+	for _, address := range addresses {
+		err = proveForAddress(address, stateDb, height, minerContract, proofDb)
 		if err != nil {
 			return
 		}
@@ -132,59 +125,62 @@ func verifyProofForAddress(address common.Address, minerContract *state.MinerCon
 	return
 }
 
-func VerifyProof(config *params.AlgorandConfig, stateRoot common.Hash, height uint64, leader common.Address, cvs []*types.CertVoteStorage, proof types.NodeList) error {
-	nodeSet := proof.NodeSet()
+func VerifyProofForStorage(config *params.AlgorandConfig, stateRoot common.Hash, height uint64, leader common.Address, cvs []*types.CertVoteStorage, proof types.NodeList) error {
+	addresses := getCommitteeAddresses(cvs, leader)
 
-	reads, err := verifyProofNodeSet(config, stateRoot, height, leader, cvs, nodeSet)
-	if err != nil {
-		return err
-	}
-
-	// check if all nodes have been read by VerifyProof
-	if reads != len(proof) {
-		return errors.New("useless nodes in merkle proof nodeset")
-	}
-
-	return nil
+	return VerifyProof(config, stateRoot, height, addresses, proof)
 }
 
-func verifyProofNodeSet(config *params.AlgorandConfig, stateRoot common.Hash, height uint64, leader common.Address, cvs []*types.CertVoteStorage, nodeSet *types.NodeSet) (int, error) {
+func getCommitteeAddresses(cvs []*types.CertVoteStorage, leader common.Address) []common.Address {
+	var addresses []common.Address
+
+	leaderNotIncluded := true
+	for _, cert := range cvs {
+		if leaderNotIncluded && cert.Credential.Address == leader {
+			leaderNotIncluded = false
+		}
+		addresses = append(addresses, cert.Credential.Address)
+	}
+
+	if leaderNotIncluded {
+		addresses = append(addresses, leader)
+	}
+
+	return addresses
+}
+
+func VerifyProof(config *params.AlgorandConfig, stateRoot common.Hash, height uint64, addresses []common.Address, proof types.NodeList) error {
+	nodeSet := proof.NodeSet()
+
 	reads := &readTraceDB{db: nodeSet}
 
 	enc, _, err := trie.VerifyProof(stateRoot, crypto.Keccak256(contracts.MinerAddress.Bytes()), reads)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	var data state.Account
 	if err := rlp.DecodeBytes(enc, &data); err != nil {
 		log.Error("Failed to decode state object", "addr", contracts.MinerAddress, "err", err)
-		return 0, err
+		return err
 	}
 
 	minerContractRoot := data.Root
 	minerContract := state.NewMinerContract(config)
-	leaderNotIncluded := true
 
-	for _, cert := range cvs {
-		err = verifyProofForAddress(cert.Credential.Address, minerContract, stateRoot, minerContractRoot, height, reads)
+	for _, address := range addresses {
+		err = verifyProofForAddress(address, minerContract, stateRoot, minerContractRoot, height, reads)
 		if err != nil {
-			return 0, err
-		}
-
-		if leaderNotIncluded && cert.Credential.Address == leader {
-			leaderNotIncluded = false
+			return err
 		}
 	}
 
-	if leaderNotIncluded {
-		err = verifyProofForAddress(leader, minerContract, stateRoot, minerContractRoot, height, reads)
-		if err != nil {
-			return 0, err
-		}
+	// check if all nodes have been read by VerifyProofForStorage
+	if len(reads.reads) != len(proof) {
+		return errors.New("useless nodes in merkle proof nodeset")
 	}
 
-	return len(reads.reads), nil
+	return nil
 }
 
 // readTraceDB stores the keys of database reads. We use this to check that received node

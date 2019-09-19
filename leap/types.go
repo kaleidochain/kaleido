@@ -187,29 +187,14 @@ func (fc *FinalCertificate) Verify(header, parent *types.Header) bool {
 type StampingCertificate struct {
 	Height uint64
 	Hash   common.Hash // TODO: need verify
-	Seed   common.Hash
-	Root   common.Hash
 	Votes  []*types.StampingVote
 }
 
-func NewStampingCertificate(height uint64, proofHeader *types.Header) *StampingCertificate {
+func NewStampingCertificate(header *types.Header, votes []*types.StampingVote) *StampingCertificate {
 	return &StampingCertificate{
-		/*
-			Height: height,
-			Seed:   proofHeader.Seed,
-			Root:   proofHeader.Root,
-		*/
-	}
-}
-
-func NewStampingCertificateWithVotes(height uint64, proofHeader *types.Header, votes []*types.StampingVote) *StampingCertificate {
-	return &StampingCertificate{
-		/*
-			Height: height,
-			Seed:   proofHeader.Seed,
-			Root:   proofHeader.Root,
-			Votes:  votes,
-		*/
+		Height: header.NumberU64(),
+		Hash:   header.Hash(),
+		Votes:  votes,
 	}
 }
 

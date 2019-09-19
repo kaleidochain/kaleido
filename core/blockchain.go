@@ -629,7 +629,7 @@ func (bc *BlockChain) BuildProof(certificate *types.Certificate) (trieProof type
 	}
 
 	proof := types.NewNodeSet()
-	err = BuildProof(bc.chainConfig.Algorand, parentStatedb, parent.Root, certificate.Height, certificate.Proposal.Credential.Address, certificate.CertVoteSet, proof)
+	err = BuildProofForStorage(bc.chainConfig.Algorand, parentStatedb, parent.Root, certificate.Height, certificate.Proposal.Credential.Address, certificate.CertVoteSet, proof)
 	if err == nil {
 		trieProof = proof.NodeList()
 	}

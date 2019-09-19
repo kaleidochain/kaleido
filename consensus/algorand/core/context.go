@@ -1743,7 +1743,15 @@ func (ctx *Context) Stake() uint64 {
 func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
 	height := block.NumberU64()
 
-	sortitionHash, sortitionProof, sortitionWeight := ctx.stampingSortition(height)
+	parentHeight := height - ctx.config.Stamping.B
+	parent := ctx.eth.BlockChain().GetHeaderByNumber(parentHeight)
+	parentStatedb, err := ctx.eth.BlockChain().StateAtHeader(parent)
+	if err != nil {
+		log.Warn("StateAtHeader failed(stamping)", "err", err, "Height", parentHeight, "miner", ctx.currentMiner)
+		return nil
+	}
+
+	sortitionHash, sortitionProof, sortitionWeight := ctx.stampingSortition(height, parent.Seed(), parentStatedb)
 	if sortitionWeight == 0 {
 		log.Trace("MakeStampingVote sortitionWeight == 0",
 			"Height", height)
@@ -1757,16 +1765,25 @@ func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
 		return nil
 	}
 
+	proof := types.NewNodeSet()
+	err = core.BuildProof(ctx.config.Algorand, parentStatedb, height, []common.Address{ctx.currentMiner}, proof)
+	if err != nil {
+		log.Error("build proof failed", "err", err)
+		panic(fmt.Sprintf("build proof failed: %v", err))
+		return nil
+	}
+
 	vote := &types.StampingVote{
 		Value: block.Hash(),
 		Credential: types.Credential{
 			Address: ctx.currentMiner,
-			Height:  block.NumberU64(),
+			Height:  height,
 			Round:   0,
 			Step:    0,
 			Proof:   sortitionProof,
 			Weight:  sortitionWeight,
 		},
+		TrieProof: proof.NodeList(),
 	}
 	sig, err := mk.Sign(vote.Height, vote.SignBytes())
 	if err != nil {
@@ -1778,7 +1795,7 @@ func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
 	return vote
 }
 
-func (ctx *Context) stampingSortition(height uint64) (hash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64) {
+func (ctx *Context) stampingSortition(height uint64, seed ed25519.VrfOutput256, parentStatedb *state.StateDB) (hash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64) {
 	if height <= ctx.config.Stamping.B {
 		log.Warn("Height < B", "Height", height, "config.B", ctx.config.Stamping.B)
 		return
@@ -1790,15 +1807,7 @@ func (ctx *Context) stampingSortition(height uint64) (hash ed25519.VrfOutput256,
 		return
 	}
 
-	parentHeight := height - ctx.config.Stamping.B
-	parent := ctx.eth.BlockChain().GetHeaderByNumber(parentHeight)
-	parentStatedb, err := ctx.eth.BlockChain().StateAtHeader(parent)
-	if err != nil {
-		log.Warn("StateAtHeader failed(stamping)", "err", err, "Height", parentHeight, "miner", ctx.currentMiner)
-		return
-	}
-
-	hash, proof, j, err = mk.StampingSortition(height, parent.Seed(), parentStatedb, ctx.parent.TotalBalanceOfMiners())
+	hash, proof, j, err = mk.StampingSortition(height, seed, parentStatedb, ctx.parent.TotalBalanceOfMiners())
 	if err != nil {
 		log.Error("Sortition failed", "err", err, "Height", height, "miner", ctx.currentMiner)
 		return

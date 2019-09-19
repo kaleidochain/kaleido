@@ -7,11 +7,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaleidochain/kaleido/core/state"
+	"github.com/kaleidochain/kaleido/ethdb"
+
 	"github.com/kaleidochain/kaleido/consensus"
 	"github.com/kaleidochain/kaleido/core/types"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/kaleidochain/kaleido/common"
+	algorand "github.com/kaleidochain/kaleido/consensus/algorand/core"
 	"github.com/kaleidochain/kaleido/core"
 	"github.com/kaleidochain/kaleido/params"
 )
@@ -75,13 +79,13 @@ func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, 
 
 		fcChain: make(map[uint64]*FinalCertificate),
 		scChain: make(map[uint64]*StampingCertificate),
-		//scStatus:    config.InitialStampingStatus(),
 	}
 	chain.messageChan = make(chan message, msgChanSize)
 	chain.buildingStampingVoteWindow = make(MapStampingVotes)
 	chain.belowStampingVoteWindow = make(MapStampingVotes)
 	chain.checkNewTicker = time.NewTicker(checkNewSCInterval)
 	chain.counter = NewHeightVoteSet()
+	chain.scStatus = chain.readSCStatus()
 
 	chain.pm = NewProtocolManager(eth, chain, config, engine, networkId)
 
@@ -92,6 +96,16 @@ func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, 
 
 func (chain *SCChain) Start() {
 	go chain.handleLoop()
+}
+
+func (chain *SCChain) readSCStatus() SCStatus {
+	// TODO: read scstatus from db
+	return SCStatus{
+		Height:    chain.eth.BlockChain().CurrentBlock().NumberU64(),
+		Candidate: chain.config.Stamping.HeightB(),
+		Proof:     chain.config.Stamping.HeightB(),
+		Fz:        chain.config.Stamping.HeightB(),
+	}
 }
 
 func (chain *SCChain) FinalCertificate(height uint64) *FinalCertificate {
@@ -761,6 +775,7 @@ func (chain *SCChain) handleStampingEvent(stampingEvent core.ChainStampingEvent)
 
 	if err := chain.handleStampingVote(stampingEvent.Vote); err != nil {
 		log.Error("handleStampingVote error", "err", err)
+		return
 	}
 
 	log.Trace("handleStampingEvent", "Status", chain.StatusString(), "vote", stampingEvent.Vote.String())
@@ -791,13 +806,38 @@ func (chain *SCChain) handleUpdateStatus() {
 }
 
 func (chain *SCChain) handleStampingVote(vote *types.StampingVote) error {
-	// verify
 	log.Trace("handleStampingVote", "vote", vote)
 	if vote == nil {
 		return fmt.Errorf("vote is nil")
 	}
 
-	_, _, err := chain.addVoteAndCount(vote, params.CommitteeConfigv1.StampingCommitteeThreshold)
+	// verify
+	proofHeight := vote.Height - chain.config.Stamping.B
+	proofHeader := chain.Header(proofHeight)
+	if proofHeader == nil {
+		return fmt.Errorf("proof header(%d) is not exist", proofHeight)
+	}
+
+	err := core.VerifyProof(chain.config.Algorand, proofHeader.Root, vote.Height, []common.Address{vote.Address}, vote.TrieProof)
+	if err != nil {
+		return err
+	}
+
+	db := ethdb.NewMemDatabase()
+	vote.TrieProof.Store(db)
+	database := state.NewDatabase(db)
+	stateDb, err := state.New(proofHeader.Root, database)
+	if err != nil {
+		return err
+	}
+
+	mv := algorand.GetMinerVerifier(chain.config.Algorand, stateDb, vote.Address, vote.Height)
+	err = algorand.VerifySignatureAndCredential(mv, vote.SignBytes(), vote.ESignValue, &vote.Credential, stateDb, proofHeader.Seed(), proofHeader.TotalBalanceOfMiners)
+	if err != nil {
+		return err
+	}
+
+	_, _, err = chain.addStampingVoteAndCount(vote, params.CommitteeConfigv1.StampingCommitteeThreshold)
 	if err != nil {
 		log.Trace("AddVoteAndCount failed", "vote", vote, "err", err)
 		return err
@@ -829,7 +869,7 @@ func (chain *SCChain) checkEnoughVotesAndAddToSCChain() (err error) {
 			delete(chain.buildingStampingVoteWindow, height)
 
 			proofHeader := chain.header(height - chain.config.Stamping.B)
-			sc := NewStampingCertificateWithVotes(height, proofHeader, scVotes)
+			sc := NewStampingCertificate(proofHeader, scVotes)
 			if sc == nil {
 				return fmt.Errorf("new sc(%d) failed\n", height)
 			}
@@ -857,6 +897,7 @@ func findEnoughHeights(window MapStampingVotes, threshold uint64) (uint64, []uin
 	var enoughHeights []uint64
 	now := time.Now().Unix()
 	for height, votes := range window {
+		log.Trace("check vote enough", "height", height, "vote", votes)
 		if votes.weight >= threshold && (now-votes.ts >= int64(stampingVoteCandidateTerm)) {
 			if maxEnoughVotesHeight < height {
 				maxEnoughVotesHeight = height
@@ -890,7 +931,7 @@ func (chain *SCChain) checkBelowCEnoughVotesAndCount() {
 	log.Trace("check below C enough done", "max height", maxEnoughVotesHeight, "enough", len(enoughHeights))
 }
 
-func (chain *SCChain) addVoteAndCount(vote *types.StampingVote, threshold uint64) (added, enough bool, err error) {
+func (chain *SCChain) addStampingVoteAndCount(vote *types.StampingVote, threshold uint64) (added, enough bool, err error) {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
@@ -907,7 +948,7 @@ func (chain *SCChain) addVoteAndCount(vote *types.StampingVote, threshold uint64
 
 	added, enough, err = chain.processStampingVoteWindow(vote, chain.buildingStampingVoteWindow, threshold)
 
-	log.Info("AddVoteAndCount OK", "Added", added, "Enough", enough,
+	log.Info("addStampingVoteAndCount OK", "Added", added, "Enough", enough,
 		"Weight", fmt.Sprintf("(%d/%d)", chain.buildingStampingVoteWindow[vote.Height].weight, threshold), "vote", vote)
 	return
 }
@@ -1187,7 +1228,7 @@ func EqualStampingCertificate(a, b *StampingCertificate) bool {
 
 	if a != nil && b != nil {
 		// TODO: compare votes?
-		return a.Height == b.Height && a.Seed == b.Seed && a.Root == b.Root
+		return a.Height == b.Height && a.Hash == b.Hash
 	}
 
 	return false

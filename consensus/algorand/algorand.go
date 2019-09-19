@@ -262,7 +262,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	var stateDb *state.StateDB
 
 	if len(certificate.TrieProof) > 0 { // for full/fast sync
-		err := core2.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
+		err := core2.VerifyProofForStorage(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
 		if err != nil {
 			return err
 		}
