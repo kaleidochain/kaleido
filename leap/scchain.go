@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaleidochain/kaleido/p2p"
+
 	"github.com/kaleidochain/kaleido/core/state"
 	"github.com/kaleidochain/kaleido/ethdb"
 
@@ -1087,6 +1089,10 @@ func (chain *SCChain) sync(peer *peer) error {
 	}
 
 	return nil
+}
+
+func (chain *SCChain) Protocols() []p2p.Protocol {
+	return chain.pm.SubProtocols
 }
 
 func (chain *SCChain) EqualRange(other *SCChain, begin, end uint64) (bool, error) {

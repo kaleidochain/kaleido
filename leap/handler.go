@@ -152,6 +152,12 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 		}
 		p.SetHasVote(ToHasSCVoteData(&data))
 		pm.scChain.OnReceive(StampingVoteMsg, &data, p.String())
+	case HasSCVoteMsg:
+		var data *HasSCVoteData
+		if err := msg.Decode(&data); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		p.counter.SetHasVote(data)
 	default:
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
 	}

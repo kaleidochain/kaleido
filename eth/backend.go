@@ -529,6 +529,9 @@ func (s *Ethereum) Protocols() []p2p.Protocol {
 	if s.chainConfig.Algorand != nil {
 		protocols = append(protocols, s.miner.Protocols()...)
 	}
+	if s.chainConfig.Stamping != nil {
+		protocols = append(protocols, s.scchain.Protocols()...)
+	}
 
 	return protocols
 }
