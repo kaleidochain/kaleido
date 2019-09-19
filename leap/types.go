@@ -198,17 +198,30 @@ func NewStampingCertificate(header *types.Header, votes []*types.StampingVote) *
 	}
 }
 
-func (sc *StampingCertificate) Verify(config *params.ChainConfig, header, proofHeader *types.Header) bool {
-	/*return sc.Height > config.HeightB() &&
-	sc.Height == header.Height &&
-	header.Height == proofHeader.Height+config.B &&
-	sc.Seed == proofHeader.Seed &&
-	sc.Root == proofHeader.Root
+func (sc *StampingCertificate) Verify(config *params.ChainConfig, header, proofHeader *types.Header) error {
+	if sc.Height <= config.Stamping.HeightB() {
+		return fmt.Errorf("sc(%d) <= B", sc.Height)
+	}
 
-	*/
-	// TODO: verify votes
+	if sc.Height != header.NumberU64() && sc.Height != proofHeader.NumberU64()+config.Stamping.B {
+		return fmt.Errorf("sc height error, sc: %d, header: %d, proof: %d", sc.Height, header.NumberU64(), proofHeader.NumberU64())
+	}
 
-	return false
+	if sc.Hash != header.Hash() {
+		return fmt.Errorf("sc hash error, sc.Hash: %s, header.Hash: %s", sc.Hash.TerminalString(), header.Hash().TerminalString())
+	}
+
+	for _, vote := range sc.Votes {
+		if vote.Height != sc.Height {
+			return fmt.Errorf("vote height isnot equal sc.height, sc.Height: %d, vote: %s", sc.Height, vote.String())
+		}
+
+		if vote.Value != sc.Hash {
+			return fmt.Errorf("vote hash isnot equal sc.height, sc.Hash: %s, vote: %s", sc.Hash.TerminalString(), vote.String())
+		}
+	}
+
+	return nil
 }
 
 func (sc *StampingCertificate) AddVote(vote *types.StampingVote) {

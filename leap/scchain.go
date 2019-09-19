@@ -258,8 +258,8 @@ func (chain *SCChain) verifyStampingCertificate(header *types.Header, sc *Stampi
 		return fmt.Errorf("proof header(%d) not exists", sc.Height-chain.config.Stamping.B)
 	}
 
-	if !sc.Verify(chain.config, header, proofHeader) {
-		return fmt.Errorf("sc(%d) invalid", sc.Height)
+	if err := sc.Verify(chain.config, header, proofHeader); err != nil {
+		return err
 	}
 
 	return nil
