@@ -178,7 +178,24 @@ func VerifySignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature
 
 	err, choosedWeight := mv.VerifySortition(credential.Height, credential.Round, credential.Step, credential.Proof, parentSeed, stateDb, totalBalanceOfMiners)
 	if err != nil {
-		log.Warn("verify credential failed", "err", "credential", credential)
+		log.Warn("verify credential failed", "credential", credential, "err", err)
+		return err
+	}
+
+	credential.Weight = choosedWeight
+	return nil
+}
+
+func VerifyStampingSignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature ed25519.ForwardSecureSignature, credential *types.Credential, stateDb *state.StateDB, parentSeed ed25519.VrfOutput256, totalBalanceOfMiners *big.Int) error {
+	err := mv.VerifySignature(credential.Height, signBytes, signature)
+	if err != nil {
+		log.Warn("verify signature failed", "err", err)
+		return err
+	}
+
+	err, choosedWeight := mv.VerifyStampingSortition(credential.Height, credential.Proof, parentSeed, stateDb, totalBalanceOfMiners)
+	if err != nil {
+		log.Warn("verify credential failed", "credential", credential, "err", err)
 		return err
 	}
 

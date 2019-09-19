@@ -832,7 +832,7 @@ func (chain *SCChain) handleStampingVote(vote *types.StampingVote) error {
 	}
 
 	mv := algorand.GetMinerVerifier(chain.config.Algorand, stateDb, vote.Address, vote.Height)
-	err = algorand.VerifySignatureAndCredential(mv, vote.SignBytes(), vote.ESignValue, &vote.Credential, stateDb, proofHeader.Seed(), proofHeader.TotalBalanceOfMiners)
+	err = algorand.VerifyStampingSignatureAndCredential(mv, vote.SignBytes(), vote.ESignValue, &vote.Credential, stateDb, proofHeader.Seed(), proofHeader.TotalBalanceOfMiners)
 	if err != nil {
 		return err
 	}
