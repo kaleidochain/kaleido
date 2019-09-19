@@ -1742,6 +1742,10 @@ func (ctx *Context) Stake() uint64 {
 
 func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
 	height := block.NumberU64()
+	if height <= ctx.config.Stamping.B {
+		log.Warn("Height < B", "Height", height, "config.B", ctx.config.Stamping.B)
+		return nil
+	}
 
 	parentHeight := height - ctx.config.Stamping.B
 	parent := ctx.eth.BlockChain().GetHeaderByNumber(parentHeight)
@@ -1796,11 +1800,6 @@ func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
 }
 
 func (ctx *Context) stampingSortition(height uint64, seed ed25519.VrfOutput256, parentStatedb *state.StateDB) (hash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64) {
-	if height <= ctx.config.Stamping.B {
-		log.Warn("Height < B", "Height", height, "config.B", ctx.config.Stamping.B)
-		return
-	}
-
 	mk, err := ctx.mkm.GetMinerKey(ctx.currentMiner, height)
 	if err != nil {
 		log.Warn("GetMinerKey failed", "err", err, "Height", height, "miner", ctx.currentMiner)
