@@ -369,14 +369,18 @@ func (chain *SCChain) trim(start, end uint64) int {
 	return count
 }
 
-func (chain *SCChain) Print() {
-	chain.mutexChain.RLock()
-	defer chain.mutexChain.RUnlock()
-
+func (chain *SCChain) print() {
 	count := chain.printRange(1, chain.scStatus.Height+1)
 
 	fmt.Printf("Status: Fz=%d, Proof=%d, Candidate=%d\n", chain.scStatus.Fz, chain.scStatus.Proof, chain.scStatus.Candidate)
 	fmt.Printf("MaxHeight=%d, realLength=%d, percent=%.2f%%\n", chain.scStatus.Height, count, float64(count*10000/chain.scStatus.Height)/100)
+}
+
+func (chain *SCChain) Print() {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	chain.print()
 }
 
 func (chain *SCChain) PrintFrozenBreadcrumbs() {
@@ -868,8 +872,11 @@ func (chain *SCChain) checkEnoughVotesAndAddToSCChain() (err error) {
 			}
 			delete(chain.buildingStampingVoteWindow, height)
 
-			proofHeader := chain.header(height - chain.config.Stamping.B)
-			sc := NewStampingCertificate(proofHeader, scVotes)
+			header := chain.header(height)
+			if header == nil {
+				panic(fmt.Sprintf("header not exist:%d", height))
+			}
+			sc := NewStampingCertificate(header, scVotes)
 			if sc == nil {
 				return fmt.Errorf("new sc(%d) failed\n", height)
 			}
