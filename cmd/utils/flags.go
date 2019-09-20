@@ -690,6 +690,11 @@ var (
 		Usage: "'height' Vote Message for 'Print'",
 		Value: 0,
 	}
+	RPCEndpointFlag = cli.StringFlag{
+		Name:  "endpoint",
+		Usage: "Remote endpoint",
+		Value: "",
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating

@@ -226,6 +226,7 @@ var AppHelpFlagGroups = []flagGroup{
 			utils.FakePoWFlag,
 			utils.NoCompactionFlag,
 			utils.VoteMsgHeightFlag,
+			utils.RPCEndpointFlag,
 		}, debug.Flags...),
 	},
 	{

@@ -144,6 +144,7 @@ var (
 		utils.MinerKeyLifespanFlag,
 
 		utils.VoteMsgHeightFlag,
+		utils.RPCEndpointFlag,
 	}
 
 	rpcFlags = []cli.Flag{
@@ -196,6 +197,8 @@ func init() {
 		makeMinerKeyCommand,
 
 		dumpVoteCommand,
+		minerkeyReaderCommand,
+		minerDbReaderCommand,
 		// See monitorcmd.go:
 		monitorCommand,
 		// See accountcmd.go:
