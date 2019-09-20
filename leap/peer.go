@@ -170,7 +170,7 @@ func (p *peer) SendStampingVote(vote *types.StampingVote) error {
 		return fmt.Errorf(fmt.Sprintf("SendVote too low, peer status:%s, vote:%v", p.statusString(), vote))
 	}
 
-	if p.counter.hasVote(vote) {
+	if p.counter.HasVote(vote) {
 		p.Log().Trace("SendVote has vote", "vote", vote, "counter", p.counter.Print(vote.Height))
 		return fmt.Errorf(fmt.Sprintf("SendVote has vote, peer status:%s, vote:%v", p.statusString(), vote))
 	}
