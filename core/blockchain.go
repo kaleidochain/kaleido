@@ -1857,3 +1857,30 @@ func (bc *BlockChain) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscript
 func (bc *BlockChain) SubscribeStampingEvent(ch chan<- ChainStampingEvent) event.Subscription {
 	return bc.scope.Track(bc.chainStampingFeed.Subscribe(ch))
 }
+
+// WriteStampingCertificate writes a sc into the local chain.
+// write  StampingCertificateStorage into db.
+func (bc *BlockChain) WriteStampingCertificate(sc *types.StampingCertificate) error {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	rawdb.WriteStampingCertificateStorage(bc.db, sc.ToStampingVoteStorage())
+	return nil
+}
+
+func (bc *BlockChain) GetStampingCertificate(number uint64) *types.StampingCertificate {
+	stampingCertificateStorage := rawdb.ReadStampingCertificateStorage(bc.db, number)
+	if stampingCertificateStorage == nil {
+		return nil
+	}
+
+	return stampingCertificateStorage.ToStampingCertificate()
+}
+
+func (bc *BlockChain) DeleteStampingCertificate(number uint64) {
+	rawdb.DeleteStampingCertificateStorage(bc.db, number)
+}

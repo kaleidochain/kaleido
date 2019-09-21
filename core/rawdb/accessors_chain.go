@@ -385,3 +385,33 @@ func FindCommonAncestor(db DatabaseReader, a, b *types.Header) *types.Header {
 	}
 	return a
 }
+
+func WriteStampingCertificateStorage(db DatabaseWriter, sc *types.StampingCertificateStorage) {
+	data, err := rlp.EncodeToBytes(sc)
+	if err != nil {
+		log.Crit("Failed to RLP encode sc storage", "err", err)
+	}
+	if err := db.Put(stampingCertificateKey(sc.Height), data); err != nil {
+		log.Crit("Failed to store sc storage", "err", err)
+	}
+}
+
+func ReadStampingCertificateStorage(db DatabaseReader, number uint64) *types.StampingCertificateStorage {
+	data, _ := db.Get(stampingCertificateKey(number))
+	if len(data) == 0 {
+		return nil
+	}
+
+	stampingCertificateStorage := new(types.StampingCertificateStorage)
+	if err := rlp.Decode(bytes.NewReader(data), stampingCertificateStorage); err != nil {
+		log.Error("Invalid sc storage RLP", "height", number, "err", err)
+		return nil
+	}
+	return stampingCertificateStorage
+}
+
+func DeleteStampingCertificateStorage(db DatabaseDeleter, number uint64) {
+	if err := db.Delete(stampingCertificateKey(number)); err != nil {
+		log.Crit("Failed to delete sc storage", "err", err)
+	}
+}

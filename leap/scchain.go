@@ -60,7 +60,6 @@ type SCChain struct {
 
 	mutexChain sync.RWMutex
 	fcChain    map[uint64]*FinalCertificate
-	scChain    map[uint64]*StampingCertificate
 
 	scStatus SCStatus
 
@@ -80,7 +79,6 @@ func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, 
 		eth:    eth,
 
 		fcChain: make(map[uint64]*FinalCertificate),
-		scChain: make(map[uint64]*StampingCertificate),
 	}
 	chain.messageChan = make(chan message, msgChanSize)
 	chain.buildingStampingVoteWindow = make(MapStampingVotes)
@@ -121,24 +119,25 @@ func (chain *SCChain) finalCertificate(height uint64) *FinalCertificate {
 	return chain.fcChain[height]
 }
 
-func (chain *SCChain) HeaderAndStampingCertificate(height uint64) (*types.Header, *StampingCertificate) {
+func (chain *SCChain) HeaderAndStampingCertificate(height uint64) (*types.Header, *types.StampingCertificate) {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
 	head := chain.header(height)
+	sc := chain.stampingCertificate(height)
 
-	return head, chain.scChain[height]
+	return head, sc
 }
 
-func (chain *SCChain) StampingCertificate(height uint64) *StampingCertificate {
+func (chain *SCChain) StampingCertificate(height uint64) *types.StampingCertificate {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
 	return chain.stampingCertificate(height)
 }
 
-func (chain *SCChain) stampingCertificate(height uint64) *StampingCertificate {
-	return chain.scChain[height]
+func (chain *SCChain) stampingCertificate(height uint64) *types.StampingCertificate {
+	return chain.eth.BlockChain().GetStampingCertificate(height)
 }
 
 func (chain *SCChain) Header(height uint64) *types.Header {
@@ -234,7 +233,7 @@ func (chain *SCChain) addBlock(header *types.Header, fc *FinalCertificate) error
 	return nil
 }
 
-func (chain *SCChain) addStampingCertificateWithHeader(header *types.Header, sc *StampingCertificate) error {
+func (chain *SCChain) addStampingCertificateWithHeader(header *types.Header, sc *types.StampingCertificate) error {
 	if chain.header(sc.Height) != nil {
 		return fmt.Errorf("scheader(%d) exists", sc.Height)
 	}
@@ -243,15 +242,17 @@ func (chain *SCChain) addStampingCertificateWithHeader(header *types.Header, sc 
 		return err
 	}
 
-	chain.scChain[sc.Height] = sc
+	if err := chain.eth.BlockChain().WriteStampingCertificate(sc); err != nil {
+		return err
+	}
 	chain.scStatus.Height = header.NumberU64() // TODO: check currentHeight < height
 
 	chain.updateStampingCertificate(sc.Height)
 	return nil
 }
 
-func (chain *SCChain) verifyStampingCertificate(header *types.Header, sc *StampingCertificate) error {
-	if _, ok := chain.scChain[sc.Height]; ok {
+func (chain *SCChain) verifyStampingCertificate(header *types.Header, sc *types.StampingCertificate) error {
+	if chain.stampingCertificate(sc.Height) != nil {
 		return fmt.Errorf("stampingCertificate(%d) exists", sc.Height)
 	}
 
@@ -267,7 +268,7 @@ func (chain *SCChain) verifyStampingCertificate(header *types.Header, sc *Stampi
 	return nil
 }
 
-func (chain *SCChain) addStampingCertificate(sc *StampingCertificate) error {
+func (chain *SCChain) addStampingCertificate(sc *types.StampingCertificate) error {
 	header := chain.header(sc.Height)
 	if header == nil {
 		return fmt.Errorf("header(%d) not exists", sc.Height)
@@ -277,7 +278,9 @@ func (chain *SCChain) addStampingCertificate(sc *StampingCertificate) error {
 		return err
 	}
 
-	chain.scChain[sc.Height] = sc
+	if err := chain.eth.BlockChain().WriteStampingCertificate(sc); err != nil {
+		return err
+	}
 
 	chain.updateStampingCertificate(sc.Height)
 	return nil
@@ -312,7 +315,7 @@ func (chain *SCChain) updateStampingCertificate(height uint64) {
 }
 
 //Keeping proof-objects up-to-date
-func (chain *SCChain) AddStampingCertificate(sc *StampingCertificate) error {
+func (chain *SCChain) AddStampingCertificate(sc *types.StampingCertificate) error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
@@ -338,14 +341,16 @@ func (chain *SCChain) freezeProof() {
 
 	//trim the tail of P to keep its length minimal
 	for height := start; height < headerEnd; height++ {
-		delete(chain.scChain, height)
+		//delete(chain.scChain, height)
+		chain.eth.BlockChain().DeleteStampingCertificate(height)
 		// TODO: delete headerchain
 		//delete(chain.headerChain, height)
 	}
 
 	// delete sc from the minimal tail
 	for height := headerEnd; height < end; height++ {
-		delete(chain.scChain, height)
+		//delete(chain.scChain, height)
+		chain.eth.BlockChain().DeleteStampingCertificate(height)
 	}
 
 	chain.scStatus.Fz = chain.scStatus.Proof
@@ -358,11 +363,12 @@ func (chain *SCChain) trim(start, end uint64) int {
 			panic(fmt.Sprintf("fc(%d) should already be deleted", height))
 		}
 
-		if chain.header(height) == nil && chain.scChain[height] == nil {
+		if chain.header(height) == nil && chain.stampingCertificate(height) == nil {
 			break
 		}
 
-		delete(chain.scChain, height)
+		//delete(chain.scChain, height)
+		chain.eth.BlockChain().DeleteStampingCertificate(height)
 		// TODO: delete headerchain
 		//delete(chain.headerChain, height)
 		count += 1
@@ -449,7 +455,7 @@ func (chain *SCChain) printRange(begin, end uint64) uint64 {
 	for height := begin; height < end; height++ {
 		header := chain.header(height)
 		fc := chain.fcChain[height]
-		sc := chain.scChain[height]
+		sc := chain.stampingCertificate(height)
 
 		if header == nil {
 			if fc != nil {
@@ -477,7 +483,7 @@ func (chain *SCChain) printRange(begin, end uint64) uint64 {
 	return count
 }
 
-func (chain *SCChain) formatHeader(height uint64, fc *FinalCertificate, sc *StampingCertificate, hasParent bool) string {
+func (chain *SCChain) formatHeader(height uint64, fc *FinalCertificate, sc *types.StampingCertificate, hasParent bool) string {
 	fcTag := ""
 	if fc != nil {
 		fcTag = "F"
@@ -640,7 +646,7 @@ func (chain *SCChain) getAllHeaders(begin, end uint64) (headers []*types.Header)
 
 type breadcrumb struct {
 	stampingHeader      *types.Header
-	stampingCertificate *StampingCertificate
+	stampingCertificate *types.StampingCertificate
 	tail                []*types.Header
 
 	forwardHeader           []*types.Header
@@ -784,9 +790,9 @@ func (chain *SCChain) handleStampingEvent(stampingEvent core.ChainStampingEvent)
 		return
 	}
 
-	log.Trace("handleStampingEvent", "Status", chain.StatusString(), "vote", stampingEvent.Vote.String())
+	log.Trace("handleStampingEvent done", "Status", chain.StatusString(), "vote", stampingEvent.Vote.String())
 
-	chain.pm.Broadcast(StampingVoteMsg, stampingEvent.Vote)
+	//chain.pm.Broadcast(StampingVoteMsg, stampingEvent.Vote)
 }
 
 func (chain *SCChain) handleMsg(msg message) {
@@ -878,7 +884,7 @@ func (chain *SCChain) checkEnoughVotesAndAddToSCChain() (err error) {
 			if header == nil {
 				panic(fmt.Sprintf("header not exist:%d", height))
 			}
-			sc := NewStampingCertificate(header, scVotes)
+			sc := types.NewStampingCertificate(header, scVotes)
 			if sc == nil {
 				return fmt.Errorf("new sc(%d) failed\n", height)
 			}
@@ -1234,7 +1240,7 @@ func EqualFinalCertificate(a, b *FinalCertificate) bool {
 	return false
 }
 
-func EqualStampingCertificate(a, b *StampingCertificate) bool {
+func EqualStampingCertificate(a, b *types.StampingCertificate) bool {
 	if a == nil && b == nil {
 		return true
 	}

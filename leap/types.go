@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kaleidochain/kaleido/params"
-
 	"github.com/kaleidochain/kaleido/core/types"
 
 	"github.com/kaleidochain/kaleido/common"
@@ -182,50 +180,6 @@ func (fc *FinalCertificate) Verify(header, parent *types.Header) bool {
 
 	*/
 	return false
-}
-
-type StampingCertificate struct {
-	Height uint64
-	Hash   common.Hash // TODO: need verify
-	Votes  []*types.StampingVote
-}
-
-func NewStampingCertificate(header *types.Header, votes []*types.StampingVote) *StampingCertificate {
-	return &StampingCertificate{
-		Height: header.NumberU64(),
-		Hash:   header.Hash(),
-		Votes:  votes,
-	}
-}
-
-func (sc *StampingCertificate) Verify(config *params.ChainConfig, header, proofHeader *types.Header) error {
-	if sc.Height <= config.Stamping.HeightB() {
-		return fmt.Errorf("sc(%d) <= B", sc.Height)
-	}
-
-	if sc.Height != header.NumberU64() && sc.Height != proofHeader.NumberU64()+config.Stamping.B {
-		return fmt.Errorf("sc height error, sc: %d, header: %d, proof: %d", sc.Height, header.NumberU64(), proofHeader.NumberU64())
-	}
-
-	if sc.Hash != header.Hash() {
-		return fmt.Errorf("sc hash error, sc.Hash: %s, header.Hash: %s", sc.Hash.TerminalString(), header.Hash().TerminalString())
-	}
-
-	for _, vote := range sc.Votes {
-		if vote.Height != sc.Height {
-			return fmt.Errorf("vote height isnot equal sc.height, sc.Height: %d, vote: %s", sc.Height, vote.String())
-		}
-
-		if vote.Value != sc.Hash {
-			return fmt.Errorf("vote hash isnot equal sc.height, sc.Hash: %s, vote: %s", sc.Hash.TerminalString(), vote.String())
-		}
-	}
-
-	return nil
-}
-
-func (sc *StampingCertificate) AddVote(vote *types.StampingVote) {
-	sc.Votes = append(sc.Votes, vote)
 }
 
 type HasSCVoteData struct {

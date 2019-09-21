@@ -20,8 +20,8 @@ package rawdb
 import (
 	"encoding/binary"
 
-	"github.com/kaleidochain/kaleido/common"
 	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/kaleidochain/kaleido/common"
 )
 
 // The fields below define the low level database schema prefixing.
@@ -58,6 +58,8 @@ var (
 
 	// Chain index prefixes (use `i` + single byte to avoid mixing data types).
 	BloomBitsIndexPrefix = []byte("iB") // BloomBitsIndexPrefix is the data table of a chain indexer to track its progress
+
+	stampingCertificatePrefix = []byte("s")
 
 	preimageCounter    = metrics.NewRegisteredCounter("db/preimage/total", nil)
 	preimageHitCounter = metrics.NewRegisteredCounter("db/preimage/hits", nil)
@@ -131,4 +133,9 @@ func preimageKey(hash common.Hash) []byte {
 // configKey = configPrefix + hash
 func configKey(hash common.Hash) []byte {
 	return append(configPrefix, hash.Bytes()...)
+}
+
+// stampingCertificateKey = stampingCertificatePrefix + num (uint64 big endian)
+func stampingCertificateKey(number uint64) []byte {
+	return append(stampingCertificatePrefix, encodeBlockNumber(number)...)
 }
