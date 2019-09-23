@@ -39,12 +39,12 @@ type peer struct {
 	msgChan   chan message
 	voteChan  chan *types.StampingVote
 
-	scStatus SCStatus
+	scStatus types.StampingStatus
 	counter  *HeightVoteSet
 
 	mutex sync.RWMutex
 
-	chain *SCChain
+	chain *StampingChain
 }
 
 func newPeer(version uint32, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
@@ -59,7 +59,7 @@ func newPeer(version uint32, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
 	}
 }
 
-func (p *peer) setChain(chain *SCChain) {
+func (p *peer) setChain(chain *StampingChain) {
 	p.chain = chain
 }
 
@@ -84,7 +84,7 @@ func (p *peer) statusString() string {
 	return fmt.Sprintf("%d/%d/%d/%d", p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.scStatus.Height)
 }
 
-func (p *peer) ChainStatus() SCStatus {
+func (p *peer) ChainStatus() types.StampingStatus {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
@@ -95,7 +95,7 @@ func (p *peer) string() string {
 	return fmt.Sprintf("%s-%d-%d-%d-%d", p.id, p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.scStatus.Height)
 }
 
-func (p *peer) Handshake(networkId uint64, genesis common.Hash, status SCStatus) error {
+func (p *peer) Handshake(networkId uint64, genesis common.Hash, status types.StampingStatus) error {
 	// Send out own handshake in a new thread
 	errCh := make(chan error, 2)
 	var handshake HandshakeData // safe to read after two values have been received from errCh
@@ -105,7 +105,7 @@ func (p *peer) Handshake(networkId uint64, genesis common.Hash, status SCStatus)
 			Version:   p.version,
 			NetworkId: networkId,
 			Genesis:   genesis,
-			SCStatus: SCStatus{
+			StampingStatus: types.StampingStatus{
 				Height:    status.Height,
 				Candidate: status.Candidate,
 				Proof:     status.Proof,
@@ -130,7 +130,7 @@ func (p *peer) Handshake(networkId uint64, genesis common.Hash, status SCStatus)
 	}
 
 	p.version = handshake.Version
-	p.updateStatus(handshake.SCStatus)
+	p.updateStatus(handshake.StampingStatus)
 	return nil
 }
 
@@ -202,7 +202,7 @@ func (p *peer) SetHasVote(data *HasSCVoteData) {
 	p.Log().Trace("SetHasVote OK", "data", data, "Status", p.statusString())
 }
 
-func (p *peer) SendStatus(status *SCStatus) {
+func (p *peer) SendStatus(status *types.StampingStatus) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -213,7 +213,7 @@ func (p *peer) SendStatus(status *SCStatus) {
 	}
 }
 
-func (p *peer) updateStatus(msg SCStatus) (uint64, uint64, bool) {
+func (p *peer) updateStatus(msg types.StampingStatus) (uint64, uint64, bool) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 

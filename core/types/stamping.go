@@ -9,6 +9,13 @@ import (
 	"github.com/kaleidochain/kaleido/crypto/ed25519"
 )
 
+type StampingStatus struct {
+	Height    uint64
+	Candidate uint64
+	Proof     uint64
+	Fz        uint64
+}
+
 type StampingVote struct {
 	Value      common.Hash                    `json:"value" gencodec:"required"`
 	ESignValue ed25519.ForwardSecureSignature `json:"eSignature" gencodec:"required"`

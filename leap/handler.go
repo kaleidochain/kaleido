@@ -31,7 +31,7 @@ type ProtocolManager struct {
 	eth       Backend
 	config    *params.ChainConfig
 	networkId uint64
-	scChain   *SCChain
+	scChain   *StampingChain
 
 	SubProtocols []p2p.Protocol
 	peers        *peerSet
@@ -41,7 +41,7 @@ type ProtocolManager struct {
 	wg sync.WaitGroup
 }
 
-func NewProtocolManager(eth Backend, chain *SCChain, config *params.ChainConfig, engine consensus.Engine, networkId uint64) *ProtocolManager {
+func NewProtocolManager(eth Backend, chain *StampingChain, config *params.ChainConfig, engine consensus.Engine, networkId uint64) *ProtocolManager {
 	pm := &ProtocolManager{
 		eth:       eth,
 		config:    config,
@@ -139,7 +139,7 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 		return errResp(ErrExtraHandshakeMsg, "uncontrolled handshake message")
 
 	case StampingStatusMsg:
-		var status SCStatus
+		var status types.StampingStatus
 		if err := msg.Decode(&status); err != nil {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}

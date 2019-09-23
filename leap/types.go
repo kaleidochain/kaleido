@@ -38,7 +38,7 @@ type HandshakeData struct {
 	Version   uint32
 	NetworkId uint64
 	Genesis   common.Hash
-	SCStatus
+	types.StampingStatus
 }
 
 // UserSet

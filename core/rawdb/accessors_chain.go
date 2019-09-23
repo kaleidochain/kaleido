@@ -415,3 +415,27 @@ func DeleteStampingCertificateStorage(db DatabaseDeleter, number uint64) {
 		log.Crit("Failed to delete sc storage", "err", err)
 	}
 }
+
+func WriteStampingStatus(db DatabaseWriter, status *types.StampingStatus) {
+	data, err := rlp.EncodeToBytes(status)
+	if err != nil {
+		log.Crit("Failed to RLP encode StampingStatus", "err", err)
+	}
+	if err := db.Put(stampingStatusKey, data); err != nil {
+		log.Crit("Failed to store StampingStatus", "err", err)
+	}
+}
+
+func ReadStampingStatus(db DatabaseReader) *types.StampingStatus {
+	data, _ := db.Get(stampingStatusKey)
+	if len(data) == 0 {
+		return nil
+	}
+
+	status := new(types.StampingStatus)
+	if err := rlp.Decode(bytes.NewReader(data), status); err != nil {
+		log.Error("Invalid sc storage RLP", "err", err)
+		return nil
+	}
+	return status
+}

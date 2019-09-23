@@ -93,7 +93,7 @@ type Ethereum struct {
 	blockchain      *core.BlockChain
 	protocolManager *ProtocolManager
 	lesServer       LesServer
-	scchain         *leap.SCChain
+	scchain         *leap.StampingChain
 
 	// DB interfaces
 	chainDb ethdb.Database // Block chain database

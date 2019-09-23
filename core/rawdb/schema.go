@@ -60,6 +60,7 @@ var (
 	BloomBitsIndexPrefix = []byte("iB") // BloomBitsIndexPrefix is the data table of a chain indexer to track its progress
 
 	stampingCertificatePrefix = []byte("s")
+	stampingStatusKey         = []byte("StampingStatus")
 
 	preimageCounter    = metrics.NewRegisteredCounter("db/preimage/total", nil)
 	preimageHitCounter = metrics.NewRegisteredCounter("db/preimage/hits", nil)

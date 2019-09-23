@@ -1884,3 +1884,18 @@ func (bc *BlockChain) GetStampingCertificate(number uint64) *types.StampingCerti
 func (bc *BlockChain) DeleteStampingCertificate(number uint64) {
 	rawdb.DeleteStampingCertificateStorage(bc.db, number)
 }
+
+func (bc *BlockChain) WriteStampingCertificateStatus(status *types.StampingStatus) {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	rawdb.WriteStampingStatus(bc.db, status)
+}
+
+func (bc *BlockChain) GetStampingStatus() *types.StampingStatus {
+	return rawdb.ReadStampingStatus(bc.db)
+}

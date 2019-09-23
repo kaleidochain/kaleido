@@ -31,7 +31,7 @@ type ChainReadWriter interface {
 	AddStampingCertificate(sc *StampingCertificate) error
 }
 
-type MultiChainWrapper []*SCChain
+type MultiChainWrapper []*StampingChain
 
 func (c MultiChainWrapper) Header(height uint64) *Header {
 	return c[0].Header(height)
@@ -84,7 +84,7 @@ func buildChainConcurrency(t *testing.T, config *Config, chain ChainReadWriter, 
 		}
 
 		switch c := chain.(type) {
-		case *SCChain:
+		case *StampingChain:
 			proofHeader := c.Header(height - config.B)
 			if s := maker.Make(height, proofHeader); s != nil {
 				s.AddVote(NewStampingVote(height, c.config.Address, c.config.StampingThreshold))
@@ -109,13 +109,13 @@ func buildChainConcurrency(t *testing.T, config *Config, chain ChainReadWriter, 
 	}
 }
 
-func buildDefaultChainByRandom(t *testing.T, maxHeight uint64) *SCChain {
+func buildDefaultChainByRandom(t *testing.T, maxHeight uint64) *StampingChain {
 	chain := NewChain(defaultConfig)
 	buildChainConcurrency(t, defaultConfig, chain, 1, maxHeight+1, randomStampingMaker(defaultConfig.FailureProbability))
 	return chain
 }
 
-func buildChainBySequence(t *testing.T, b uint64, maxHeight uint64, seq []uint64) *SCChain {
+func buildChainBySequence(t *testing.T, b uint64, maxHeight uint64, seq []uint64) *StampingChain {
 	config := &Config{
 		B:                  b,
 		FailureProbability: 0,
@@ -125,11 +125,11 @@ func buildChainBySequence(t *testing.T, b uint64, maxHeight uint64, seq []uint64
 	return chain
 }
 
-func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *SCChain {
+func buildSpecialChain(t *testing.T, B, maxHeight uint64, heights []uint64) *StampingChain {
 	return buildChainBySequence(t, B, maxHeight, heights)
 }
 
-func ensureSyncOk(t *testing.T, a *SCChain) (b, c, d *SCChain) {
+func ensureSyncOk(t *testing.T, a *StampingChain) (b, c, d *StampingChain) {
 	b = NewChain(a.config)
 	b.AddPeerChain(a)
 	if err := b.Sync(); err != nil {
@@ -225,8 +225,8 @@ func TestSync0ToBnNLessThanB(t *testing.T) {
 		Proof:     20,
 		Fz:        20,
 	}
-	if chain.scStatus != expectedSCStatus {
-		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	if chain.stampingStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.stampingStatus, expectedSCStatus)
 	}
 	ensureSyncOk(t, chain)
 
@@ -239,8 +239,8 @@ func TestSync0ToBnNLessThanB(t *testing.T) {
 		Proof:     40,
 		Fz:        20,
 	}
-	if chain.scStatus != expectedSCStatus {
-		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	if chain.stampingStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.stampingStatus, expectedSCStatus)
 	}
 	ensureSyncOk(t, chain)
 }
@@ -257,8 +257,8 @@ func TestSync0ToBnFzEqualB(t *testing.T) {
 		Proof:     40,
 		Fz:        20,
 	}
-	if chain.scStatus != expectedSCStatus {
-		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	if chain.stampingStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.stampingStatus, expectedSCStatus)
 	}
 	ensureSyncOk(t, chain)
 
@@ -271,8 +271,8 @@ func TestSync0ToBnFzEqualB(t *testing.T) {
 		Proof:     60,
 		Fz:        40,
 	}
-	if chain.scStatus != expectedSCStatus {
-		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	if chain.stampingStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.stampingStatus, expectedSCStatus)
 	}
 	ensureSyncOk(t, chain)
 }
@@ -289,8 +289,8 @@ func TestSyncWhenFPAllHeaderNoFC(t *testing.T) {
 		Proof:     40,
 		Fz:        20,
 	}
-	if chain.scStatus != expectedSCStatus {
-		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	if chain.stampingStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.stampingStatus, expectedSCStatus)
 	}
 	ensureSyncOk(t, chain)
 
@@ -303,8 +303,8 @@ func TestSyncWhenFPAllHeaderNoFC(t *testing.T) {
 		Proof:     40,
 		Fz:        20,
 	}
-	if chain.scStatus != expectedSCStatus {
-		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	if chain.stampingStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.stampingStatus, expectedSCStatus)
 	}
 	ensureSyncOk(t, chain)
 
@@ -317,8 +317,8 @@ func TestSyncWhenFPAllHeaderNoFC(t *testing.T) {
 		Proof:     40,
 		Fz:        20,
 	}
-	if chain.scStatus != expectedSCStatus {
-		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	if chain.stampingStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.stampingStatus, expectedSCStatus)
 	}
 	ensureSyncOk(t, chain)
 
@@ -331,8 +331,8 @@ func TestSyncWhenFPAllHeaderNoFC(t *testing.T) {
 		Proof:     41,
 		Fz:        40,
 	}
-	if chain.scStatus != expectedSCStatus {
-		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.scStatus, expectedSCStatus)
+	if chain.stampingStatus != expectedSCStatus {
+		t.Fatalf("scstatus error, chain.scstatus:%v, expected:%v", chain.stampingStatus, expectedSCStatus)
 	}
 	ensureSyncOk(t, chain)
 }
@@ -831,7 +831,7 @@ func TestChainGossipP1SCP2NoSC(t *testing.T) {
 	time.Sleep(150 * 60 * time.Second)
 }
 
-func makeMultiChain(t *testing.T, chainNum int) []*SCChain {
+func makeMultiChain(t *testing.T, chainNum int) []*StampingChain {
 	maxHeight := uint64(20)
 	var configs []*Config
 	for i := 1; i <= chainNum; i++ {
@@ -899,8 +899,8 @@ func TestChainGossipP1P2P3(t *testing.T) {
 
 	time.Sleep(150 * 60 * time.Second)
 
-	scStatus := chains[0].ChainStatus()
-	equal, err := chains[1].EqualRange(chains[2], 1, scStatus.Fz)
+	stampingStatus := chains[0].ChainStatus()
+	equal, err := chains[1].EqualRange(chains[2], 1, stampingStatus.Fz)
 	if !equal {
 		t.Errorf(fmt.Sprintf("not equal, err:%s", err))
 
@@ -926,8 +926,8 @@ func TestChainGossipP1P2P3P4(t *testing.T) {
 
 	time.Sleep(10 * 60 * time.Second)
 
-	scStatus := chains[0].ChainStatus()
-	equal, err := chains[0].EqualRange(chains[3], 1, scStatus.Fz)
+	stampingStatus := chains[0].ChainStatus()
+	equal, err := chains[0].EqualRange(chains[3], 1, stampingStatus.Fz)
 	if !equal {
 		t.Errorf(fmt.Sprintf("not equal, err:%s", err))
 
@@ -961,8 +961,8 @@ func TestChainGossipP1P2P3P4P1(t *testing.T) {
 
 	time.Sleep(20 * 60 * time.Second)
 
-	scStatus := chains[0].ChainStatus()
-	equal, err := chains[0].EqualRange(chains[3], 1, scStatus.Fz)
+	stampingStatus := chains[0].ChainStatus()
+	equal, err := chains[0].EqualRange(chains[3], 1, stampingStatus.Fz)
 	if !equal {
 		t.Errorf(fmt.Sprintf("not equal, err:%s", err))
 
@@ -992,7 +992,7 @@ func TestChainSyncGossip(t *testing.T) {
 	buildChainConcurrency(t, config, a, 1, maxHeight, randomStampingMaker(config.FailureProbability))
 	b, c, d := ensureSyncOk(t, a)
 
-	var chains []*SCChain
+	var chains []*StampingChain
 	chains = append(chains, a, b, c, d)
 
 	for i := range chains {
