@@ -17,11 +17,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"math/big"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/kaleidochain/kaleido/accounts/abi/bind"
+
+	"github.com/kaleidochain/kaleido/contracts"
+	"github.com/kaleidochain/kaleido/contracts/contractgo"
+
+	"github.com/kaleidochain/kaleido/ethclient"
+
+	"github.com/ethereum/go-ethereum/rlp"
 
 	"github.com/ethereum/go-ethereum/log"
 
@@ -111,6 +122,33 @@ If the key already exists, just return it.
 		},
 		Category:    "DEBUG COMMANDS",
 		Description: "The dumpVote command prints height vote message for algorand-consensus.",
+	}
+	minerkeyReaderCommand = cli.Command{
+		Action:    utils.MigrateFlags(minerKeyReader),
+		Name:      "minerkeyreader",
+		Usage:     "Print minerkey file",
+		ArgsUsage: " ",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.MinerStakeOwnerFlag,
+			utils.MinerKeyStartFlag,
+		},
+		Category:    "DEBUG COMMANDS",
+		Description: "The minerkeyreader command prints 'minerkey' in order to check minerkey file.",
+	}
+	minerDbReaderCommand = cli.Command{
+		Action:    utils.MigrateFlags(minerDbReader),
+		Name:      "minerdbreader",
+		Usage:     "Print minerdb.get",
+		ArgsUsage: " ",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.MinerStakeOwnerFlag,
+			utils.MinerKeyStartFlag,
+			utils.RPCEndpointFlag,
+		},
+		Category:    "DEBUG COMMANDS",
+		Description: "The minerdbreader command prints MinerDB.get.",
 	}
 )
 
@@ -267,6 +305,107 @@ func dumpVote(ctx *cli.Context) error {
 		utils.Fatalf("Failed to read vote message file for height(%d): %v", err, height)
 	}
 	journal.CloseFile()
+
+	return nil
+}
+
+func minerKeyReader(ctx *cli.Context) error {
+	stakeOwner := ctx.GlobalString(utils.MinerStakeOwnerFlag.Name)
+	if len(stakeOwner) == 0 {
+		utils.Fatalf("Invalid StakeOwner")
+	}
+	start := ctx.GlobalUint64(utils.MinerKeyStartFlag.Name)
+	if start == 0 {
+		utils.Fatalf("start must be greater than 0")
+	}
+
+	config := params.KaleidoMainnetChainConfig.Algorand
+	if ctx.GlobalBool(utils.TestnetFlag.Name) {
+		config = params.KaleidoTestnetChainConfig.Algorand
+	} else if ctx.GlobalBool(utils.DeveloperFlag.Name) {
+		utils.Fatalf("not support devnet")
+		// todo: support devnet
+	}
+
+	sn := config.GetIntervalSn(start)
+	begin, end := config.GetInterval(sn)
+	filename := fmt.Sprintf("%s-%d-%d.bin", stakeOwner, begin, end)
+
+	dataDir := utils.MakeDataDir(ctx)
+	path := fmt.Sprintf("%s/kalgo/minerkeys/%s", dataDir, filename)
+
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func(file *os.File) {
+		_ = file.Close()
+	}(f)
+
+	stream := rlp.NewStream(f, algorandcore.MaxMinerKeySize)
+	mk := algorandcore.NewEmptyMinerKey(config)
+	err = mk.DecodeRLP(stream)
+	if err != nil {
+		return err
+	}
+
+	mv := mk.ToVerifier()
+	details := strings.ReplaceAll(mv.String(), ", ", "\n\t")
+	fmt.Printf("MinerKey: %s\nDetails:\n\t%s\n", mv.AbiString(), details)
+
+	return nil
+}
+
+func minerDbReader(ctx *cli.Context) error {
+	stakeOwner := ctx.GlobalString(utils.MinerStakeOwnerFlag.Name)
+	if len(stakeOwner) == 0 {
+		utils.Fatalf("Invalid StakeOwner")
+	}
+	start := ctx.GlobalUint64(utils.MinerKeyStartFlag.Name)
+	if start == 0 {
+		utils.Fatalf("start must be greater than 0")
+	}
+	rpc := ctx.GlobalString(utils.RPCEndpointFlag.Name)
+	if len(rpc) == 0 {
+		utils.Fatalf("Invalid rpc")
+	}
+
+	config := params.KaleidoMainnetChainConfig.Algorand
+	if ctx.GlobalBool(utils.TestnetFlag.Name) {
+		config = params.KaleidoTestnetChainConfig.Algorand
+	} else if ctx.GlobalBool(utils.DeveloperFlag.Name) {
+		utils.Fatalf("not support devnet")
+		// todo: support devnet
+	}
+
+	sn := config.GetIntervalSn(start)
+	begin, end := config.GetInterval(sn)
+
+	client, err := ethclient.Dial(rpc)
+	if err != nil {
+		utils.Fatalf("cannt connect rpc:%s", rpc)
+	}
+
+	miner, err := contractgo.NewMiner(contracts.MinerAddress, client)
+	if err != nil {
+		utils.Fatalf("NewMiner error, err:%s", err)
+	}
+
+	stakeOwnerAddress := common.HexToAddress(stakeOwner)
+	opts := &bind.CallOpts{
+		Pending: false,
+		From:    stakeOwnerAddress,
+		Context: context.Background(),
+	}
+	startUint, lifespan, coinbase, vrfVerifier, voteVerifier, err := miner.Get(opts, new(big.Int).SetUint64(begin), stakeOwnerAddress)
+	if err != nil {
+		utils.Fatalf("miner.get error, err:%s", err)
+	}
+	details := fmt.Sprintf("miner = %s, coinbase = %s, start = %d, end = %d, lifespan = %d, vrfVerifier = 0x%x, voteVerfier = 0x%x",
+		stakeOwner, coinbase.String(), startUint, end, lifespan, vrfVerifier, voteVerifier[:])
+
+	details = strings.ReplaceAll(details, ", ", "\n\t")
+	fmt.Printf("MinerDB:\n\t%s\n", details)
 
 	return nil
 }

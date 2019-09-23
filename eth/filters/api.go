@@ -25,13 +25,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/log"
+	kaleido "github.com/kaleidochain/kaleido"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/hexutil"
 	"github.com/kaleidochain/kaleido/core/types"
 	"github.com/kaleidochain/kaleido/ethdb"
 	"github.com/kaleidochain/kaleido/event"
 	"github.com/kaleidochain/kaleido/rpc"
-	kaleido "github.com/kaleidochain/kaleido"
 )
 
 var (
@@ -267,7 +268,9 @@ func (api *PublicFilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc
 			}
 		}
 	}()
-
+	for i := 0; i < len(crit.Addresses); i++ {
+		log.Debug("subcribe Logs", "ID", rpcSub.ID, "contract", crit.Addresses[i].String(), "topics", crit.Topics)
+	}
 	return rpcSub, nil
 }
 
@@ -317,6 +320,7 @@ func (api *PublicFilterAPI) NewFilter(crit FilterCriteria) (rpc.ID, error) {
 		}
 	}()
 
+	log.Debug("NewFilter", "ID", logsSub.ID, "contract", crit.Addresses, "topics", crit.Topics)
 	return logsSub.ID, nil
 }
 
@@ -346,6 +350,7 @@ func (api *PublicFilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([
 	if err != nil {
 		return nil, err
 	}
+
 	return returnLogs(logs), err
 }
 
@@ -401,6 +406,9 @@ func (api *PublicFilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*ty
 	if err != nil {
 		return nil, err
 	}
+	for i := 0; i < len(logs); i++ {
+		log.Debug("GetFilterLogs", "ID", id, "contract", logs[i].Address.String(), "topics", logs[i].Topics, "txhash", logs[i].TxHash.String())
+	}
 	return returnLogs(logs), nil
 }
 
@@ -431,6 +439,9 @@ func (api *PublicFilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
 		case LogsSubscription:
 			logs := f.logs
 			f.logs = nil
+			for i := 0; i < len(logs); i++ {
+				log.Debug("GetFilterChanges", "ID", id, "contract", logs[i].Address.String(), "topics", logs[i].Topics, "txhash", logs[i].TxHash.String())
+			}
 			return returnLogs(logs), nil
 		}
 	}
