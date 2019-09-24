@@ -61,6 +61,7 @@ var (
 
 	stampingCertificatePrefix = []byte("s")
 	stampingStatusKey         = []byte("StampingStatus")
+	futureStampingStatusKey   = []byte("FutureStampingStatus")
 
 	preimageCounter    = metrics.NewRegisteredCounter("db/preimage/total", nil)
 	preimageHitCounter = metrics.NewRegisteredCounter("db/preimage/hits", nil)

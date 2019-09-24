@@ -1899,3 +1899,18 @@ func (bc *BlockChain) WriteStampingCertificateStatus(status *types.StampingStatu
 func (bc *BlockChain) GetStampingStatus() *types.StampingStatus {
 	return rawdb.ReadStampingStatus(bc.db)
 }
+
+func (bc *BlockChain) WriteFutureStampingCertificateStatus(status *types.StampingStatus) {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	rawdb.WriteFutureStampingStatus(bc.db, status)
+}
+
+func (bc *BlockChain) GetFutureStampingStatus() *types.StampingStatus {
+	return rawdb.ReadFutureStampingStatus(bc.db)
+}

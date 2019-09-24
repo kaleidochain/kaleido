@@ -19,6 +19,7 @@ package rawdb
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -417,29 +418,59 @@ func DeleteStampingCertificateStorage(db DatabaseDeleter, number uint64) {
 }
 
 func WriteStampingStatus(db DatabaseWriter, status *types.StampingStatus) {
-	data, err := rlp.EncodeToBytes(status)
-	if err != nil {
-		log.Crit("Failed to RLP encode StampingStatus", "err", err)
-	}
-	if err := db.Put(stampingStatusKey, data); err != nil {
+	if err := writeStampingStatus(db, stampingStatusKey, status); err != nil {
 		log.Crit("Failed to store StampingStatus", "err", err)
 	}
 }
 
 func ReadStampingStatus(db DatabaseReader) *types.StampingStatus {
-	data, err := db.Get(stampingStatusKey)
-	if err != nil {
+	if status, err := readFutureStampingStatus(db, stampingStatusKey); err != nil {
 		log.Error("Failed to read StampingStatus", "err", err)
+		return nil
+	} else {
+		return status
+	}
+}
+
+func WriteFutureStampingStatus(db DatabaseWriter, status *types.StampingStatus) {
+	if err := writeStampingStatus(db, futureStampingStatusKey, status); err != nil {
+		log.Crit("Failed to store future StampingStatus", "err", err)
+	}
+}
+
+func ReadFutureStampingStatus(db DatabaseReader) *types.StampingStatus {
+	if status, err := readFutureStampingStatus(db, futureStampingStatusKey); err != nil {
+		log.Error("Failed to read future StampingStatus", "err", err)
+		return nil
+	} else {
+		return status
+	}
+}
+
+func writeStampingStatus(db DatabaseWriter, key []byte, status *types.StampingStatus) error {
+	data, err := rlp.EncodeToBytes(status)
+	if err != nil {
+		return err
+	}
+	if err := db.Put(key, data); err != nil {
+		return err
+
+	}
+	return nil
+}
+
+func readFutureStampingStatus(db DatabaseReader, key []byte) (*types.StampingStatus, error) {
+	data, err := db.Get(key)
+	if err != nil {
+		return nil, err
 	}
 	if len(data) == 0 {
-		log.Error("Failed to read StampingStatus， len(data)=0")
-		return nil
+		return nil, fmt.Errorf("failed to read StampingStatus， len(data)=0")
 	}
 
 	status := new(types.StampingStatus)
 	if err := rlp.Decode(bytes.NewReader(data), status); err != nil {
-		log.Error("Invalid sc storage RLP", "err", err)
-		return nil
+		return nil, err
 	}
-	return status
+	return status, nil
 }

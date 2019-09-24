@@ -78,7 +78,6 @@ func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, 
 	chain.belowStampingVoteWindow = make(MapStampingVotes)
 	chain.checkNewTicker = time.NewTicker(checkNewSCInterval)
 	chain.counter = NewHeightVoteSet()
-	chain.stampingStatus = chain.readStampingStatus()
 
 	chain.pm = NewProtocolManager(eth, chain, config, engine, networkId)
 
@@ -88,25 +87,35 @@ func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, 
 }
 
 func (chain *StampingChain) Start() {
+	chain.processStatusAndChainConsistence()
 	go chain.handleLoop()
 }
 
-func (chain *StampingChain) readStampingStatus() types.StampingStatus {
+func (chain *StampingChain) processStatusAndChainConsistence() {
+	futureStampingStatus := chain.eth.BlockChain().GetFutureStampingStatus()
 	status := chain.eth.BlockChain().GetStampingStatus()
-	if status != nil {
-		log.Trace("read stamping status", "status", status)
-		return *status
+
+	if futureStampingStatus == nil {
+		return
+	}
+	if status == nil {
+		if chain.eth.BlockChain().CurrentBlock().NumberU64() > chain.config.Stamping.HeightB() {
+			log.Error("cant read stamping status, check stamping chain status")
+		}
+		chain.stampingStatus = types.StampingStatus{
+			Height:    chain.eth.BlockChain().CurrentBlock().NumberU64(),
+			Candidate: chain.config.Stamping.HeightB(),
+			Proof:     chain.config.Stamping.HeightB(),
+			Fz:        chain.config.Stamping.HeightB(),
+		}
+		return
 	}
 
-	if chain.eth.BlockChain().CurrentBlock().NumberU64() > chain.config.Stamping.HeightB() {
-		log.Error("cant read stamping status")
-	}
-
-	return types.StampingStatus{
-		Height:    chain.eth.BlockChain().CurrentBlock().NumberU64(),
-		Candidate: chain.config.Stamping.HeightB(),
-		Proof:     chain.config.Stamping.HeightB(),
-		Fz:        chain.config.Stamping.HeightB(),
+	if futureStampingStatus.Candidate > status.Candidate ||
+		futureStampingStatus.Proof > status.Proof ||
+		futureStampingStatus.Fz > status.Fz {
+		chain.stampingStatus = *status
+		chain.doKeepStampingStatusUptoDate(futureStampingStatus.Candidate)
 	}
 }
 
@@ -201,13 +210,6 @@ func (chain *StampingChain) addHeader(header *types.Header) error {
 	return err
 }
 
-func (chain *StampingChain) AddBlock(header *types.Header, fc *FinalCertificate) error {
-	chain.mutexChain.Lock()
-	defer chain.mutexChain.Unlock()
-
-	return chain.addBlock(header, fc)
-}
-
 func (chain *StampingChain) addBlock(header *types.Header, fc *FinalCertificate) error {
 	if header.NumberU64() <= chain.stampingStatus.Height {
 		return fmt.Errorf("block(%d) lower than stamping status(%s)", header.NumberU64(), chain.stampingStatus)
@@ -238,7 +240,7 @@ func (chain *StampingChain) addBlock(header *types.Header, fc *FinalCertificate)
 	return nil
 }
 
-func (chain *StampingChain) addStampingCertificateWithHeader(header *types.Header, sc *types.StampingCertificate) error {
+func (chain *StampingChain) addStampingCertificateWithSync(header *types.Header, sc *types.StampingCertificate) error {
 	if sc.Height <= chain.stampingStatus.Candidate {
 		return fmt.Errorf("sc(%d) lower than stamping status(%s)", sc.Height, chain.stampingStatus)
 	}
@@ -255,14 +257,16 @@ func (chain *StampingChain) addStampingCertificateWithHeader(header *types.Heade
 		return err
 	}
 	chain.updateStatusHeight(header.NumberU64())
-	if chain.updateStampingCertificate(sc.Height) {
-		chain.writeStatusToDb()
-	}
+	chain.keepStampingChainUptoDate(sc.Height)
 	return nil
 }
 
 func (chain *StampingChain) updateStatusHeight(height uint64) {
 	chain.stampingStatus.Height = height
+}
+
+func (chain *StampingChain) writeFutureStatusToDb(futureStatus *types.StampingStatus) {
+	chain.eth.BlockChain().WriteStampingCertificateStatus(futureStatus)
 }
 
 func (chain *StampingChain) writeStatusToDb() {
@@ -300,13 +304,32 @@ func (chain *StampingChain) addStampingCertificate(sc *types.StampingCertificate
 		return err
 	}
 
-	if chain.updateStampingCertificate(sc.Height) {
-		chain.writeStatusToDb()
-	}
+	chain.keepStampingChainUptoDate(sc.Height)
 	return nil
 }
 
-func (chain *StampingChain) updateStampingCertificate(height uint64) bool {
+func (chain *StampingChain) keepStampingChainUptoDate(height uint64) {
+	futureStampingStatus := chain.precomputedFutureStampingStatus(height)
+	chain.writeFutureStatusToDb(&futureStampingStatus)
+	if chain.doKeepStampingStatusUptoDate(height) {
+		chain.writeStatusToDb()
+	}
+}
+
+func (chain *StampingChain) precomputedFutureStampingStatus(height uint64) (stampingStatus types.StampingStatus) {
+	stampingStatus = chain.stampingStatus
+
+	if height-chain.stampingStatus.Proof <= chain.config.Stamping.B {
+		stampingStatus.Candidate = height
+	} else {
+		stampingStatus.Fz = chain.stampingStatus.Proof
+		stampingStatus.Proof = chain.stampingStatus.Candidate
+		stampingStatus.Candidate = height
+	}
+	return
+}
+
+func (chain *StampingChain) doKeepStampingStatusUptoDate(height uint64) bool {
 	if height <= chain.stampingStatus.Candidate {
 		return false
 	}
@@ -320,6 +343,7 @@ func (chain *StampingChain) updateStampingCertificate(height uint64) bool {
 		chain.stampingStatus.Candidate = height
 	} else {
 		chain.freezeProof()
+		chain.stampingStatus.Fz = chain.stampingStatus.Proof
 		chain.stampingStatus.Proof = chain.stampingStatus.Candidate
 		chain.stampingStatus.Candidate = height
 	}
@@ -373,8 +397,6 @@ func (chain *StampingChain) freezeProof() {
 		//delete(chain.scChain, height)
 		chain.eth.BlockChain().DeleteStampingCertificate(height)
 	}
-
-	chain.stampingStatus.Fz = chain.stampingStatus.Proof
 }
 
 func (chain *StampingChain) trim(start, end uint64) int {
@@ -703,7 +725,7 @@ func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (next
 			}
 		}
 
-		err = chain.addStampingCertificateWithHeader(bc.stampingHeader, bc.stampingCertificate)
+		err = chain.addStampingCertificateWithSync(bc.stampingHeader, bc.stampingCertificate)
 		if err != nil {
 			return
 		}
