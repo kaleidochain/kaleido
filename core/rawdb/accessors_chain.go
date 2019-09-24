@@ -427,8 +427,12 @@ func WriteStampingStatus(db DatabaseWriter, status *types.StampingStatus) {
 }
 
 func ReadStampingStatus(db DatabaseReader) *types.StampingStatus {
-	data, _ := db.Get(stampingStatusKey)
+	data, err := db.Get(stampingStatusKey)
+	if err != nil {
+		log.Error("Failed to read StampingStatus", "err", err)
+	}
 	if len(data) == 0 {
+		log.Error("Failed to read StampingStatus， len(data)=0")
 		return nil
 	}
 

@@ -16,6 +16,10 @@ type StampingStatus struct {
 	Fz        uint64
 }
 
+func (s *StampingStatus) String() string {
+	return fmt.Sprintf("%d/%d/%d/%d", s.Fz, s.Proof, s.Candidate, s.Height)
+}
+
 type StampingVote struct {
 	Value      common.Hash                    `json:"value" gencodec:"required"`
 	ESignValue ed25519.ForwardSecureSignature `json:"eSignature" gencodec:"required"`

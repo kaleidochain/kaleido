@@ -94,6 +94,7 @@ func (chain *StampingChain) Start() {
 func (chain *StampingChain) readStampingStatus() types.StampingStatus {
 	status := chain.eth.BlockChain().GetStampingStatus()
 	if status != nil {
+		log.Trace("read stamping status", "status", status)
 		return *status
 	}
 
@@ -209,7 +210,7 @@ func (chain *StampingChain) AddBlock(header *types.Header, fc *FinalCertificate)
 
 func (chain *StampingChain) addBlock(header *types.Header, fc *FinalCertificate) error {
 	if header.NumberU64() <= chain.stampingStatus.Height {
-		return fmt.Errorf("block(%d) lower than stamping status(%s)", header.NumberU64(), chain.StatusString())
+		return fmt.Errorf("block(%d) lower than stamping status(%s)", header.NumberU64(), chain.stampingStatus)
 	}
 	if h := chain.header(header.NumberU64()); h != nil {
 		return fmt.Errorf("block(%d) exists", header.NumberU64())
@@ -239,7 +240,7 @@ func (chain *StampingChain) addBlock(header *types.Header, fc *FinalCertificate)
 
 func (chain *StampingChain) addStampingCertificateWithHeader(header *types.Header, sc *types.StampingCertificate) error {
 	if sc.Height <= chain.stampingStatus.Candidate {
-		return fmt.Errorf("sc(%d) lower than stamping status(%s)", sc.Height, chain.StatusString())
+		return fmt.Errorf("sc(%d) lower than stamping status(%s)", sc.Height, chain.stampingStatus)
 	}
 
 	if chain.header(sc.Height) != nil {
@@ -254,8 +255,9 @@ func (chain *StampingChain) addStampingCertificateWithHeader(header *types.Heade
 		return err
 	}
 	chain.updateStatusHeight(header.NumberU64())
-	chain.updateStampingCertificate(sc.Height)
-	chain.writeStatusToDb()
+	if chain.updateStampingCertificate(sc.Height) {
+		chain.writeStatusToDb()
+	}
 	return nil
 }
 
@@ -298,13 +300,15 @@ func (chain *StampingChain) addStampingCertificate(sc *types.StampingCertificate
 		return err
 	}
 
-	chain.updateStampingCertificate(sc.Height)
+	if chain.updateStampingCertificate(sc.Height) {
+		chain.writeStatusToDb()
+	}
 	return nil
 }
 
-func (chain *StampingChain) updateStampingCertificate(height uint64) {
+func (chain *StampingChain) updateStampingCertificate(height uint64) bool {
 	if height <= chain.stampingStatus.Candidate {
-		return
+		return false
 	}
 
 	// delete fc
@@ -327,7 +331,7 @@ func (chain *StampingChain) updateStampingCertificate(height uint64) {
 	_ = n
 	//fmt.Printf("trim range=[%d, %d] trimmed=%d/%d\n", start, end, n, end-start-1)
 
-	return
+	return true
 }
 
 //Keeping proof-objects up-to-date
@@ -351,6 +355,7 @@ func (chain *StampingChain) deleteFC(start, end uint64) int {
 }
 
 func (chain *StampingChain) freezeProof() {
+	// freeze( max(Fz, QB-B), min(C-B, QB))
 	start := MaxUint64(chain.stampingStatus.Fz+1, chain.stampingStatus.Proof-chain.config.Stamping.B+1)
 	headerEnd := MinUint64(chain.stampingStatus.Candidate-chain.config.Stamping.B, chain.stampingStatus.Proof)
 	end := chain.stampingStatus.Proof
@@ -547,7 +552,10 @@ func (chain *StampingChain) HeaderAndFinalCertificate(height uint64) (*types.Hea
 }
 
 func (chain *StampingChain) StatusString() string {
-	return fmt.Sprintf("%d/%d/%d/%d", chain.stampingStatus.Fz, chain.stampingStatus.Proof, chain.stampingStatus.Candidate, chain.stampingStatus.Height)
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	return chain.stampingStatus.String()
 }
 
 func (chain *StampingChain) ChainStatus() types.StampingStatus {
@@ -809,7 +817,7 @@ func (chain *StampingChain) handleStampingEvent(stampingEvent core.ChainStamping
 		return
 	}
 
-	log.Trace("handleStampingEvent done", "Status", chain.StatusString(), "vote", stampingEvent.Vote.String())
+	log.Trace("handleStampingEvent done", "Status", chain.stampingStatus, "vote", stampingEvent.Vote.String())
 
 	//chain.pm.Broadcast(StampingVoteMsg, stampingEvent.Vote)
 }
@@ -825,7 +833,7 @@ func (chain *StampingChain) handleMsg(msg message) {
 }
 
 func (chain *StampingChain) handleUpdateStatus() {
-	log.Trace("handleUpdateStatus", "Status", chain.StatusString())
+	log.Trace("handleUpdateStatus", "Status", chain.stampingStatus)
 
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
@@ -1030,7 +1038,7 @@ func (chain *StampingChain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (
 		if err := p.PickAndSend(sc.Votes); err == nil {
 			sent = true
 
-			p.Log().Info("gossipVoteData vote below F", "status", chain.StatusString(),
+			p.Log().Info("gossipVoteData vote below F", "status", chain.stampingStatus,
 				"send", height, "not send", fmt.Sprintf("%d-%d", startLog, endLog))
 			break
 		} else {
@@ -1054,7 +1062,7 @@ func (chain *StampingChain) PickBuildingSCVoteToPeer(begin, end uint64, p *peer)
 		if err := p.PickBuildingAndSend(votes); err == nil {
 			sent = true
 
-			p.Log().Info("gossipVoteData vote between C and H", "status", chain.StatusString(),
+			p.Log().Info("gossipVoteData vote between C and H", "status", chain.stampingStatus,
 				"send", height, "not send", fmt.Sprintf("%d-%d", startLog, endLog))
 			break
 		} else {
