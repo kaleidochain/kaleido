@@ -92,12 +92,8 @@ func (chain *StampingChain) Start() {
 }
 
 func (chain *StampingChain) processStatusAndChainConsistence() {
-	futureStampingStatus := chain.eth.BlockChain().GetFutureStampingStatus()
 	status := chain.eth.BlockChain().GetStampingStatus()
 
-	if futureStampingStatus == nil {
-		return
-	}
 	if status == nil {
 		if chain.eth.BlockChain().CurrentBlock().NumberU64() > chain.config.Stamping.HeightB() {
 			log.Error("cant read stamping status, check stamping chain status")
@@ -110,11 +106,19 @@ func (chain *StampingChain) processStatusAndChainConsistence() {
 		}
 		return
 	}
+	chain.stampingStatus = *status
+	log.Trace("read stamping", "stamping status", status.String())
+
+	futureStampingStatus := chain.eth.BlockChain().GetFutureStampingStatus()
+	if futureStampingStatus == nil {
+		return
+	}
+
+	log.Trace("read stamping", "future stamping status", futureStampingStatus.String())
 
 	if futureStampingStatus.Candidate > status.Candidate ||
 		futureStampingStatus.Proof > status.Proof ||
 		futureStampingStatus.Fz > status.Fz {
-		chain.stampingStatus = *status
 		chain.doKeepStampingStatusUptoDate(futureStampingStatus.Candidate)
 	}
 }
@@ -266,7 +270,7 @@ func (chain *StampingChain) updateStatusHeight(height uint64) {
 }
 
 func (chain *StampingChain) writeFutureStatusToDb(futureStatus *types.StampingStatus) {
-	chain.eth.BlockChain().WriteStampingCertificateStatus(futureStatus)
+	chain.eth.BlockChain().WriteFutureStampingCertificateStatus(futureStatus)
 }
 
 func (chain *StampingChain) writeStatusToDb() {
