@@ -24,8 +24,8 @@ import (
 
 const (
 	chainStampingChanSize     = 10
-	checkNewSCInterval        = 30 * time.Second
-	stampingVoteCandidateTerm = 30
+	checkNewSCInterval        = 6 * time.Second
+	stampingVoteCandidateTerm = 36
 	gossipMaxHeightDiff       = 20
 	belowCHeight              = 100
 )
