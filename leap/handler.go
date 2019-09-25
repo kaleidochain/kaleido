@@ -28,10 +28,10 @@ type NodeInfo struct {
 }
 
 type ProtocolManager struct {
-	eth       Backend
-	config    *params.ChainConfig
-	networkId uint64
-	scChain   *StampingChain
+	eth           Backend
+	config        *params.ChainConfig
+	networkId     uint64
+	stampingChain *StampingChain
 
 	SubProtocols []p2p.Protocol
 	peers        *peerSet
@@ -43,11 +43,11 @@ type ProtocolManager struct {
 
 func NewProtocolManager(eth Backend, chain *StampingChain, config *params.ChainConfig, engine consensus.Engine, networkId uint64) *ProtocolManager {
 	pm := &ProtocolManager{
-		eth:       eth,
-		config:    config,
-		networkId: networkId,
-		scChain:   chain,
-		peers:     newPeerSet(),
+		eth:           eth,
+		config:        config,
+		networkId:     networkId,
+		stampingChain: chain,
+		peers:         newPeerSet(),
 	}
 
 	log.Info("Initialising Leap protocol", "versions", ProtocolVersions)
@@ -91,7 +91,7 @@ func (pm *ProtocolManager) NodeInfo() *NodeInfo {
 func (pm *ProtocolManager) runPeer(p *peer) error {
 	// first update HR to bootstrap gossip
 	// handshake must be done at first
-	err := p.Handshake(pm.networkId, pm.eth.BlockChain().Genesis().Hash(), pm.scChain.ChainStatus())
+	err := p.Handshake(pm.networkId, pm.eth.BlockChain().Genesis().Hash(), pm.stampingChain.ChainStatus())
 	if err != nil {
 		if err == io.EOF {
 			p.Log().Debug("peer closed on handshake")
@@ -151,7 +151,7 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
 		p.SetHasVote(ToHasSCVoteData(&data))
-		pm.scChain.OnReceive(StampingVoteMsg, &data, p.String())
+		pm.stampingChain.OnReceive(StampingVoteMsg, &data, p.String())
 	case HasSCVoteMsg:
 		var data *HasSCVoteData
 		if err := msg.Decode(&data); err != nil {
@@ -204,10 +204,10 @@ func (pm *ProtocolManager) gossipVotesLoop(p *peer) {
 			return
 		}
 
-		scStatus := pm.scChain.ChainStatus()
+		scStatus := pm.stampingChain.ChainStatus()
 		peerScStatus := p.ChainStatus()
 
-		p.Log().Trace("gossip begin", "status", pm.scChain.StatusString())
+		p.Log().Trace("gossip begin", "status", pm.stampingChain.StatusString())
 
 		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height {
 			needSleep = true
@@ -215,7 +215,7 @@ func (pm *ProtocolManager) gossipVotesLoop(p *peer) {
 		}
 
 		if peerScStatus.Candidate < scStatus.Candidate {
-			if pm.scChain.pickFrozenSCVoteToPeer(peerScStatus.Candidate, scStatus.Candidate, p) {
+			if pm.stampingChain.pickFrozenSCVoteToPeer(peerScStatus.Candidate, scStatus.Candidate, p) {
 				needSleep = true
 				continue
 			}
@@ -224,7 +224,7 @@ func (pm *ProtocolManager) gossipVotesLoop(p *peer) {
 		//(C, H]
 		windowFloor := MaxUint64(scStatus.Candidate, peerScStatus.Candidate)
 		windowCeil := MinUint64(scStatus.Height, peerScStatus.Height)
-		if pm.scChain.PickBuildingSCVoteToPeer(windowFloor, windowCeil, p) {
+		if pm.stampingChain.PickBuildingSCVoteToPeer(windowFloor, windowCeil, p) {
 			needSleep = true
 			continue
 		}

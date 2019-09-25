@@ -390,7 +390,7 @@ func (chain *StampingChain) freezeProof() {
 
 	//trim the tail of P to keep its length minimal
 	for height := start; height < headerEnd; height++ {
-		//delete(chain.scChain, height)
+		//delete(chain.stampingChain, height)
 		chain.eth.BlockChain().DeleteStampingCertificate(height)
 		// TODO: delete headerchain
 		//delete(chain.headerChain, height)
@@ -398,7 +398,7 @@ func (chain *StampingChain) freezeProof() {
 
 	// delete sc from the minimal tail
 	for height := headerEnd; height < end; height++ {
-		//delete(chain.scChain, height)
+		//delete(chain.stampingChain, height)
 		chain.eth.BlockChain().DeleteStampingCertificate(height)
 	}
 }
@@ -414,7 +414,7 @@ func (chain *StampingChain) trim(start, end uint64) int {
 			break
 		}
 
-		//delete(chain.scChain, height)
+		//delete(chain.stampingChain, height)
 		chain.eth.BlockChain().DeleteStampingCertificate(height)
 		// TODO: delete headerchain
 		//delete(chain.headerChain, height)
