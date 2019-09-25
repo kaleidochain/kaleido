@@ -875,6 +875,9 @@ func (chain *StampingChain) handleStampingVote(vote *types.StampingVote) error {
 	if vote == nil {
 		return fmt.Errorf("vote is nil")
 	}
+	if vote.Height <= chain.config.Stamping.HeightB() {
+		return fmt.Errorf("vote is invalid, vote.Height(%d) is lower than B(%d)", vote.Height, chain.config.Stamping.HeightB())
+	}
 
 	// verify
 	proofHeight := vote.Height - chain.config.Stamping.B
