@@ -424,7 +424,7 @@ func WriteStampingStatus(db DatabaseWriter, status *types.StampingStatus) {
 }
 
 func ReadStampingStatus(db DatabaseReader) *types.StampingStatus {
-	if status, err := readFutureStampingStatus(db, stampingStatusKey); err != nil {
+	if status, err := readStampingStatus(db, stampingStatusKey); err != nil {
 		log.Error("Failed to read StampingStatus", "err", err)
 		return nil
 	} else {
@@ -439,7 +439,7 @@ func WriteFutureStampingStatus(db DatabaseWriter, status *types.StampingStatus) 
 }
 
 func ReadFutureStampingStatus(db DatabaseReader) *types.StampingStatus {
-	if status, err := readFutureStampingStatus(db, futureStampingStatusKey); err != nil {
+	if status, err := readStampingStatus(db, futureStampingStatusKey); err != nil {
 		log.Error("Failed to read future StampingStatus", "err", err)
 		return nil
 	} else {
@@ -459,7 +459,7 @@ func writeStampingStatus(db DatabaseWriter, key []byte, status *types.StampingSt
 	return nil
 }
 
-func readFutureStampingStatus(db DatabaseReader, key []byte) (*types.StampingStatus, error) {
+func readStampingStatus(db DatabaseReader, key []byte) (*types.StampingStatus, error) {
 	data, err := db.Get(key)
 	if err != nil {
 		return nil, err
