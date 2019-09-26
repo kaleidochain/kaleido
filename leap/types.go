@@ -13,10 +13,14 @@ import (
 )
 
 const (
-	HandshakeMsg      = 0x00
-	StampingStatusMsg = 0x01
-	StampingVoteMsg   = 0x02
-	HasSCVoteMsg      = 0x03
+	HandshakeMsg         = 0x00
+	StampingStatusMsg    = 0x01
+	StampingVoteMsg      = 0x02
+	HasSCVoteMsg         = 0x03
+	GetNextBreadcrumbMsg = 0x04
+	NextBreadcrumbMsg    = 0x05
+	GetHeadersMsg        = 0x06
+	HeadersMsg           = 0x07
 )
 
 var CodeToString = map[uint64]string{
@@ -27,6 +31,15 @@ var CodeToString = map[uint64]string{
 }
 
 const msgChanSize = 4096
+
+type getNextBreadcrumbData struct {
+	Begin, End uint64
+}
+
+type getHeadersData struct {
+	Begin, End         uint64
+	Forward, IncludeFc bool
+}
 
 type message struct {
 	code uint64
@@ -158,28 +171,6 @@ type FinalCertificate struct {
 	Hash       common.Hash
 	ParentSeed common.Hash
 	ParentRoot common.Hash
-}
-
-func NewFinalCertificate(header, parent *types.Header) *FinalCertificate {
-	return &FinalCertificate{
-		/*Height:     header.Height,
-		Hash:       header.Hash(),
-		ParentSeed: parent.Seed,
-		ParentRoot: parent.Root,
-
-		*/
-	}
-}
-
-func (fc *FinalCertificate) Verify(header, parent *types.Header) bool {
-	/*return fc.Height == header.Height &&
-	fc.Hash == header.Hash() &&
-	fc.Height == parent.Height+1 &&
-	fc.ParentSeed == parent.Seed &&
-	fc.ParentRoot == parent.Root
-
-	*/
-	return false
 }
 
 type HasSCVoteData struct {

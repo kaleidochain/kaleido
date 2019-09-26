@@ -152,12 +152,47 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 		}
 		p.SetHasVote(ToHasSCVoteData(&data))
 		pm.stampingChain.OnReceive(StampingVoteMsg, &data, p.String())
+
 	case HasSCVoteMsg:
-		var data *HasSCVoteData
+		var data HasSCVoteData
 		if err := msg.Decode(&data); err != nil {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
-		p.counter.SetHasVote(data)
+		p.counter.SetHasVote(&data)
+
+	case GetNextBreadcrumbMsg:
+		var data getNextBreadcrumbData
+		if err := msg.Decode(&data); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		bc, err := pm.stampingChain.getNextBreadcrumb(data.Begin, data.End)
+		if err != nil {
+			p.Log().Error("get breadcrumb err", "begin", data.Begin, "end", data.End, "err", err)
+		}
+		return p.SendNextBreadcrumb(bc)
+
+	case NextBreadcrumbMsg:
+		var bc breadcrumb
+		if err := msg.Decode(&bc); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		p.DeliverBCData(p.breadcrumbChan, &bc)
+
+	case GetHeadersMsg:
+		var data getHeadersData
+		if err := msg.Decode(&data); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		headers := pm.stampingChain.getHeaders(data.Begin, data.End, data.Forward, data.IncludeFc)
+		return p.SendHeaders(headers)
+
+	case HeadersMsg:
+		var headers []*types.Header
+		if err := msg.Decode(&headers); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		p.DeliverHeadersData(p.headersChan, headers)
+
 	default:
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
 	}

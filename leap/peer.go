@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	errClosed            = errors.New("peer set is closed")
+	errClosed            = errors.New("peer/peer set is closed")
 	errAlreadyRegistered = errors.New("peer is already registered")
 	errNotRegistered     = errors.New("peer is not registered")
 )
@@ -34,10 +34,12 @@ type peer struct {
 	version uint32
 
 	*p2p.Peer
-	rw        p2p.MsgReadWriter
-	closeChan chan struct{}
-	msgChan   chan message
-	voteChan  chan *types.StampingVote
+	rw             p2p.MsgReadWriter
+	closeChan      chan struct{}
+	msgChan        chan message
+	voteChan       chan *types.StampingVote
+	breadcrumbChan chan *breadcrumb
+	headersChan    chan []*types.Header
 
 	scStatus types.StampingStatus
 	counter  *HeightVoteSet
@@ -49,13 +51,15 @@ type peer struct {
 
 func newPeer(version uint32, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
 	return &peer{
-		id:        peerIdKey(p.ID()),
-		Peer:      p,
-		rw:        rw,
-		counter:   NewHeightVoteSet(),
-		closeChan: make(chan struct{}),
-		msgChan:   make(chan message, msgQueueSize),
-		voteChan:  make(chan *types.StampingVote, msgQueueSize),
+		id:             peerIdKey(p.ID()),
+		Peer:           p,
+		rw:             rw,
+		counter:        NewHeightVoteSet(),
+		closeChan:      make(chan struct{}),
+		msgChan:        make(chan message, msgQueueSize),
+		voteChan:       make(chan *types.StampingVote, msgQueueSize),
+		breadcrumbChan: make(chan *breadcrumb, 1),
+		headersChan:    make(chan []*types.Header, 1),
 	}
 }
 
@@ -302,24 +306,77 @@ func (p *peer) broadcaster() {
 	}
 }
 
-func (p *peer) Header(height uint64) (header *types.Header) {
-	// TODO: need p2p
-	return
+func (p *peer) Header(height uint64) *types.Header {
+	headers := p.GetHeaders(height, height, true, true)
+	if len(headers) == 0 {
+		return nil
+	}
+
+	return headers[0]
 }
 
-func (p *peer) GetHeaders(begin, end uint64) (headers []*types.Header) {
-	// TODO: need p2p
-	return
-}
+func (p *peer) GetHeaders(begin, end uint64, forward, includeFc bool) (headers []*types.Header) {
+	go func() {
+		if err := p.requestHeaders(begin, end, forward, includeFc); err != nil {
+			p.Log().Error("requestHeaders failed", "begin", begin, "end", end, "forward", forward, "err", err)
+		}
+	}()
 
-func (p *peer) HeaderAndFinalCertificate(height uint64) (header *types.Header, fc *FinalCertificate) {
-	// TODO: need p2p
-	return
+	select {
+	case headers = <-p.headersChan:
+		return
+	case <-p.closeChan:
+		return
+	}
 }
 
 func (p *peer) GetNextBreadcrumb(begin, end uint64) (bc *breadcrumb, err error) {
-	// TODO: need p2p
-	return
+	go func() {
+		if e := p.requestNextBreadcrumb(begin, end); e != nil {
+			p.Log().Error("requestNextBreadcrumb failed", "begin", begin, "end", end, "err", e)
+		}
+	}()
+
+	select {
+	case bc = <-p.breadcrumbChan:
+		return
+	case <-p.closeChan:
+		return nil, errClosed
+	}
+}
+
+func (p *peer) SendNextBreadcrumb(bc *breadcrumb) error {
+	return p2p.Send(p.rw, NextBreadcrumbMsg, bc)
+}
+
+func (p *peer) SendHeaders(headers []*types.Header) error {
+	return p2p.Send(p.rw, HeadersMsg, headers)
+}
+
+func (p *peer) requestNextBreadcrumb(begin, end uint64) error {
+	return p2p.Send(p.rw, GetNextBreadcrumbMsg, &getNextBreadcrumbData{Begin: begin, End: end})
+}
+
+func (p *peer) requestHeaders(begin, end uint64, forward, includeFc bool) error {
+	return p2p.Send(p.rw, GetHeadersMsg, &getHeadersData{Begin: begin, End: end, Forward: forward, IncludeFc: includeFc})
+}
+
+func (p *peer) DeliverBCData(breadcrumbChan chan *breadcrumb, b *breadcrumb) {
+	select {
+	case breadcrumbChan <- b:
+		return
+	case <-p.closeChan:
+		return
+	}
+}
+
+func (p *peer) DeliverHeadersData(headersChan chan []*types.Header, headers []*types.Header) {
+	select {
+	case headersChan <- headers:
+		return
+	case <-p.closeChan:
+		return
+	}
 }
 
 // peerSet represents the collection of active peers currently participating in
