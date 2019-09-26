@@ -157,10 +157,7 @@ func ReadHeader(db DatabaseReader, hash common.Hash, number uint64) *types.Heade
 
 // WriteHeader stores a block header into the database and also stores the hash-
 // to-number mapping.
-func WriteHeader(db DatabaseWriter, headerRaw *types.Header) {
-	header := types.CopyHeader(headerRaw)
-	header.Certificate.TrieProof = nil
-
+func WriteHeader(db DatabaseWriter, header *types.Header) {
 	// Write the hash -> number mapping
 	var (
 		hash    = header.Hash()
