@@ -36,6 +36,9 @@ type ProtocolManager struct {
 	SubProtocols []p2p.Protocol
 	peers        *peerSet
 
+	newPeerCh chan *peer
+	quitSync  chan struct{}
+
 	// wait group is used for graceful shutdowns during downloading
 	// and processing
 	wg sync.WaitGroup
@@ -48,6 +51,8 @@ func NewProtocolManager(eth Backend, chain *StampingChain, config *params.ChainC
 		networkId:     networkId,
 		stampingChain: chain,
 		peers:         newPeerSet(),
+		newPeerCh:     make(chan *peer),
+		quitSync:      make(chan struct{}),
 	}
 
 	log.Info("Initialising Leap protocol", "versions", ProtocolVersions)
@@ -64,9 +69,14 @@ func NewProtocolManager(eth Backend, chain *StampingChain, config *params.ChainC
 			Run: func(p *p2p.Peer, rw p2p.MsgReadWriter) error {
 				log.Info("New leap peer connected", "version", version)
 				peer := newPeer(uint32(version), p, rw)
-				pm.wg.Add(1)
-				defer pm.wg.Done()
-				return pm.runPeer(peer)
+				select {
+				case pm.newPeerCh <- peer:
+					pm.wg.Add(1)
+					defer pm.wg.Done()
+					return pm.runPeer(peer)
+				case <-pm.quitSync:
+					return p2p.DiscQuitting
+				}
 			},
 			NodeInfo: func() interface{} {
 				return pm.NodeInfo()
@@ -176,6 +186,7 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 		if err := msg.Decode(&bc); err != nil {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
+		p.Log().Debug("recv bc", "bc", bc.String())
 		p.DeliverBCData(p.breadcrumbChan, &bc)
 
 	case GetHeadersMsg:
@@ -191,6 +202,7 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 		if err := msg.Decode(&headers); err != nil {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
+		p.Log().Debug("recv headers", "len", len(headers))
 		p.DeliverHeadersData(p.headersChan, headers)
 
 	default:
@@ -290,4 +302,15 @@ func (pm *ProtocolManager) Request(marker []byte, blockMarker common.Hash) {
 }
 
 func (pm *ProtocolManager) Publish(marker []byte, msgCode uint64, data interface{}) {
+}
+
+func (pm *ProtocolManager) Stop() {
+	log.Info("Stopping Leap protocol")
+
+	close(pm.quitSync)
+	pm.peers.Close()
+
+	pm.wg.Wait()
+
+	log.Info("Leap protocol stopped")
 }

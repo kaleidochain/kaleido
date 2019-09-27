@@ -354,10 +354,12 @@ func (p *peer) SendHeaders(headers []*types.Header) error {
 }
 
 func (p *peer) requestNextBreadcrumb(begin, end uint64) error {
+	p.Log().Debug("Fetching next breadcrump", "begin", begin, "end", end)
 	return p2p.Send(p.rw, GetNextBreadcrumbMsg, &getNextBreadcrumbData{Begin: begin, End: end})
 }
 
 func (p *peer) requestHeaders(begin, end uint64, forward, includeFc bool) error {
+	p.Log().Debug("Fetching batch of headers", "begin", begin, "end", end, "forward", forward, "include", includeFc)
 	return p2p.Send(p.rw, GetHeadersMsg, &getHeadersData{Begin: begin, End: end, Forward: forward, IncludeFc: includeFc})
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -24,6 +25,9 @@ const (
 	stampingVoteCandidateTerm = 36
 	gossipMaxHeightDiff       = 20
 	belowCHeight              = 100
+
+	forceSyncCycle      = 10 * time.Second // Time interval to force syncs, even if few peers are available
+	minDesiredPeerCount = 5                // Amount of peers desired to start syncing
 )
 
 func MaxUint64(a, b uint64) uint64 {
@@ -57,7 +61,8 @@ type StampingChain struct {
 	checkNewTicker             *time.Ticker
 	counter                    *HeightVoteSet
 
-	pm *ProtocolManager
+	pm            *ProtocolManager
+	synchronising int32
 }
 
 func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, networkId uint64) *StampingChain {
@@ -80,6 +85,8 @@ func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, 
 
 func (chain *StampingChain) Start() {
 	chain.processStatusAndChainConsistence()
+
+	go chain.syncer()
 	go chain.handleLoop()
 }
 
@@ -161,11 +168,7 @@ func (chain *StampingChain) addHeaderWithHash(header *types.Header, hash common.
 	}
 
 	// TODO: header validation needs to be refactored
-	n, err := chain.eth.BlockChain().InsertHeaderChain([]*types.Header{header}, 1)
-	if n != 1 {
-		return fmt.Errorf("header insert error, n = 0")
-	}
-	return err
+	return chain.writeHeader(header)
 }
 
 func (chain *StampingChain) addBackwardHeader(header *types.Header) error {
@@ -180,21 +183,19 @@ func (chain *StampingChain) addBackwardHeader(header *types.Header) error {
 		return fmt.Errorf("next header(%d) ParentHash != header(%d).Hash", header.NumberU64()+1, header.NumberU64())
 	}
 	// TODO: header validation needs to be refactored
-	n, err := chain.eth.BlockChain().InsertHeaderChain([]*types.Header{header}, 1)
-	if n != 1 {
-		return fmt.Errorf("header insert error, n = 0")
-	}
-
-	return err
+	return chain.writeHeader(header)
 }
 
 func (chain *StampingChain) addForwardHeader(header *types.Header) error {
 	// TODO: header validation needs to be refactored
+	return chain.writeHeader(header)
+}
+
+func (chain *StampingChain) writeHeader(header *types.Header) error {
 	n, err := chain.eth.BlockChain().InsertHeaderChain([]*types.Header{header}, 1)
 	if n != 1 {
-		return fmt.Errorf("header insert error, n = 0")
+		//return fmt.Errorf("header insert error, n = 0")
 	}
-
 	return err
 }
 
@@ -231,6 +232,7 @@ func (chain *StampingChain) addForwardBlock(header *types.Header) error {
 }
 
 func (chain *StampingChain) addStampingCertificateWithSync(header *types.Header, sc *types.StampingCertificate) error {
+	log.Trace("addStampingCertificateWithSync", "header.Height", header.NumberU64(), "sc.Height", sc.Height)
 	if sc.Height <= chain.stampingStatus.Candidate {
 		return fmt.Errorf("sc(%d) lower than stamping status(%s)", sc.Height, chain.stampingStatus.String())
 	}
@@ -243,7 +245,11 @@ func (chain *StampingChain) addStampingCertificateWithSync(header *types.Header,
 		return err
 	}
 
-	if err := chain.eth.BlockChain().WriteStampingCertificate(sc); err != nil {
+	if err := chain.writeHeader(header); err != nil {
+		return err
+	}
+
+	if err := chain.writeStampingCertificate(sc); err != nil {
 		return err
 	}
 	chain.updateStatusHeight(header.NumberU64())
@@ -290,11 +296,19 @@ func (chain *StampingChain) addStampingCertificate(sc *types.StampingCertificate
 		return err
 	}
 
-	if err := chain.eth.BlockChain().WriteStampingCertificate(sc); err != nil {
-		return err
+	e := chain.writeStampingCertificate(sc)
+	if e != nil {
+		return e
 	}
 
 	chain.keepStampingChainUptoDate(sc.Height)
+	return nil
+}
+
+func (chain *StampingChain) writeStampingCertificate(sc *types.StampingCertificate) error {
+	if err := chain.eth.BlockChain().WriteStampingCertificate(sc); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -447,19 +461,19 @@ func (chain *StampingChain) PrintProperty() {
 		}
 
 		countBreadcrumb++
-		if breadcrumb.stampingHeader != nil {
-			if n := len(breadcrumb.tail); n > 0 {
+		if breadcrumb.StampingHeader != nil {
+			if n := len(breadcrumb.Tail); n > 0 {
 				countTail++
 				sumTailLength += n
 			}
 
-			begin = breadcrumb.stampingHeader.NumberU64() + 1
-			end = (breadcrumb.stampingHeader.NumberU64() - uint64(len(breadcrumb.tail))) + chain.config.Stamping.B
+			begin = breadcrumb.StampingHeader.NumberU64() + 1
+			end = (breadcrumb.StampingHeader.NumberU64() - uint64(len(breadcrumb.Tail))) + chain.config.Stamping.B
 		} else {
 			countForward++
-			sumForwardLength += len(breadcrumb.forwardHeader)
+			sumForwardLength += len(breadcrumb.ForwardHeader)
 
-			lastOne := breadcrumb.forwardHeader[len(breadcrumb.forwardHeader)-1]
+			lastOne := breadcrumb.ForwardHeader[len(breadcrumb.ForwardHeader)-1]
 			begin = lastOne.NumberU64() + 1
 			end = lastOne.NumberU64() + chain.config.Stamping.B
 		}
@@ -569,6 +583,7 @@ func (chain *StampingChain) ChainStatus() types.StampingStatus {
 }
 
 func (chain *StampingChain) forwardSyncRangeByHeaderAndFinalCertificate(p *peer, start, end uint64) error {
+	log.Debug("forwardSyncRangeByHeaderAndFinalCertificate", "peer", p.ID().String(), "start", start, "end", end)
 	for height := start; height <= end && height <= p.scStatus.Height; height++ {
 		if chain.hasHeader(height) {
 			continue
@@ -613,8 +628,11 @@ func (chain *StampingChain) backwardSyncRangeOnlyByHeader(p *peer, start, end ui
 	return nil
 }
 
-func (chain *StampingChain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, error) {
-	bc := &breadcrumb{}
+func (chain *StampingChain) getNextBreadcrumb(begin, end uint64) (bc *breadcrumb, err error) {
+	defer func() {
+		log.Debug("getNextBreadcrumb return", "begin", begin, "end", end, "bc", bc.String())
+	}()
+	bc = &breadcrumb{}
 	for height := end; height >= begin; height-- {
 		if sc := chain.stampingCertificate(height); sc != nil {
 			header := chain.header(height)
@@ -622,8 +640,8 @@ func (chain *StampingChain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, e
 				panic(fmt.Sprintf("cannot find header(%d)", height))
 			}
 
-			bc.stampingHeader = header
-			bc.stampingCertificate = sc
+			bc.StampingHeader = header
+			bc.StampingCertificate = sc
 
 			// rollback tail
 			for h := height - 1; h >= begin; h-- {
@@ -632,7 +650,7 @@ func (chain *StampingChain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, e
 					break
 				}
 
-				bc.tail = append(bc.tail, header)
+				bc.Tail = append(bc.Tail, header)
 			}
 
 			return bc, nil
@@ -645,7 +663,7 @@ func (chain *StampingChain) getNextBreadcrumb(begin, end uint64) (*breadcrumb, e
 			panic(fmt.Sprintf("cannot find header(%d)", height))
 		}
 
-		bc.forwardHeader = append(bc.forwardHeader, header)
+		bc.ForwardHeader = append(bc.ForwardHeader, header)
 
 		forwardHeight := height + chain.config.Stamping.B
 		if sc := chain.stampingCertificate(forwardHeight); sc != nil {
@@ -689,12 +707,19 @@ func (chain *StampingChain) getHeaders(begin, end uint64, forward, includeFc boo
 }
 
 type breadcrumb struct {
-	stampingHeader      *types.Header
-	stampingCertificate *types.StampingCertificate
-	tail                []*types.Header
+	StampingHeader      *types.Header
+	StampingCertificate *types.StampingCertificate
+	Tail                []*types.Header
 
-	forwardHeader []*types.Header
+	ForwardHeader []*types.Header
 	//forwardFinalCertificate []*FinalCertificate
+}
+
+func (bc *breadcrumb) String() string {
+	if bc.StampingCertificate == nil {
+		return fmt.Sprintf("sc:nil, tail len:%d, forward len:%d", len(bc.Tail), len(bc.ForwardHeader))
+	}
+	return fmt.Sprintf("sc:%d, tail len:%d, forward len:%d", bc.StampingCertificate.Height, len(bc.Tail), len(bc.ForwardHeader))
 }
 
 func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (nextBegin, nextEnd uint64, err error) {
@@ -704,28 +729,28 @@ func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (next
 		return
 	}
 
-	if bc.stampingHeader != nil {
-		if proofHeader := chain.header(bc.stampingHeader.Number.Uint64() - chain.config.Stamping.B); proofHeader == nil {
+	if bc.StampingHeader != nil {
+		if proofHeader := chain.header(bc.StampingHeader.Number.Uint64() - chain.config.Stamping.B); proofHeader == nil {
 			tailLength := chain.getTailLength(begin)
-			neededBegin := bc.stampingHeader.Number.Uint64() - chain.config.Stamping.B
+			neededBegin := bc.StampingHeader.Number.Uint64() - chain.config.Stamping.B
 			neededEnd := begin - 1 - tailLength
 			if err = chain.syncAllHeaders(p, neededBegin, neededEnd); err != nil {
 				// TODO: switch to full node
 				archive := chain.pm.GetArchivePeer()
 				if err = chain.syncAllHeaders(archive, neededBegin, neededEnd); err != nil {
 					/*fmt.Printf("syncAllHeaders, peer:%s, begin:end=[%d, %d] [%d, %d], proof:%d, tailLength:%d\n",
-					peer.id, begin, end, neededBegin, neededEnd, bc.stampingHeader.Height-chain.config.Stamping.B, tailLength)*/
+					peer.id, begin, end, neededBegin, neededEnd, bc.StampingHeader.Height-chain.config.Stamping.B, tailLength)*/
 					return
 				}
 			}
 		}
 
-		err = chain.addStampingCertificateWithSync(bc.stampingHeader, bc.stampingCertificate)
+		err = chain.addStampingCertificateWithSync(bc.StampingHeader, bc.StampingCertificate)
 		if err != nil {
 			return
 		}
 
-		for _, tailHeader := range bc.tail {
+		for _, tailHeader := range bc.Tail {
 			err = chain.addBackwardHeader(tailHeader)
 			if err != nil {
 				return
@@ -733,9 +758,9 @@ func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (next
 		}
 
 		nextBegin = chain.stampingStatus.Height + 1
-		nextEnd = (chain.stampingStatus.Height - uint64(len(bc.tail))) + chain.config.Stamping.B
+		nextEnd = (chain.stampingStatus.Height - uint64(len(bc.Tail))) + chain.config.Stamping.B
 	} else {
-		for _, h := range bc.forwardHeader {
+		for _, h := range bc.ForwardHeader {
 			err = chain.addForwardBlock(h)
 			if err != nil {
 				return
@@ -1093,12 +1118,57 @@ func (chain *StampingChain) PickBuildingSCVoteToPeer(begin, end uint64, p *peer)
 	return
 }
 
+func (chain *StampingChain) syncer() {
+	forceSync := time.NewTicker(forceSyncCycle)
+	defer forceSync.Stop()
+
+	for {
+		select {
+		case <-chain.pm.newPeerCh:
+			// Make sure we have peers to select from, then sync
+			if chain.pm.peers.Len() < minDesiredPeerCount {
+				break
+			}
+			go chain.BeginSync()
+
+		case <-forceSync.C:
+			// Force a sync even if not enough peers are present
+			go chain.BeginSync()
+
+		case <-chain.pm.quitSync:
+			return
+		}
+	}
+}
+
+func (chain *StampingChain) BeginSync() {
+	if !atomic.CompareAndSwapInt32(&chain.synchronising, 0, 1) {
+		log.Trace("sync is busy.")
+	}
+	defer atomic.StoreInt32(&chain.synchronising, 0)
+
+	if err := chain.Sync(); err != nil {
+		log.Error("sync failed", "err", err)
+		panic(fmt.Sprintf("sync failed, err:%s", err))
+		return
+	}
+}
+
 func (chain *StampingChain) Sync() error {
+	peer := chain.pm.GetBestPeer()
+	if peer == nil {
+		return nil
+	}
+
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
-	peer := chain.pm.GetBestPeer()
-	return chain.sync(peer)
+	log.Trace("begin sync", "peer", peer.ID().String())
+	chain.print()
+	err := chain.sync(peer)
+	log.Trace("end sync", "peer", peer.ID().String(), "err", err)
+	chain.print()
+	return err
 }
 
 func (chain *StampingChain) sync(peer *peer) error {
