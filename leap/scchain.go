@@ -85,6 +85,7 @@ func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, 
 
 func (chain *StampingChain) Start() {
 	chain.processStatusAndChainConsistence()
+	chain.Sync()
 
 	go chain.syncer()
 	go chain.handleLoop()
@@ -235,10 +236,6 @@ func (chain *StampingChain) addStampingCertificateWithSync(header *types.Header,
 	log.Trace("addStampingCertificateWithSync", "header.Height", header.NumberU64(), "sc.Height", sc.Height)
 	if sc.Height <= chain.stampingStatus.Candidate {
 		return fmt.Errorf("sc(%d) lower than stamping status(%s)", sc.Height, chain.stampingStatus.String())
-	}
-
-	if chain.header(sc.Height) != nil {
-		return fmt.Errorf("scheader(%d) exists", sc.Height)
 	}
 
 	if err := chain.verifyStampingCertificate(header, sc); err != nil {
@@ -745,16 +742,8 @@ func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (next
 			}
 		}
 
-		err = chain.addStampingCertificateWithSync(bc.StampingHeader, bc.StampingCertificate)
-		if err != nil {
+		if err := chain.syncBreadcrumbWithTailHeader(bc.StampingHeader, bc.StampingCertificate, bc.Tail); err != nil {
 			return
-		}
-
-		for _, tailHeader := range bc.Tail {
-			err = chain.addBackwardHeader(tailHeader)
-			if err != nil {
-				return
-			}
 		}
 
 		nextBegin = chain.stampingStatus.Height + 1
@@ -772,6 +761,38 @@ func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (next
 	}
 
 	return
+}
+
+func (chain *StampingChain) syncBreadcrumbWithTailHeader(header *types.Header, sc *types.StampingCertificate, tail []*types.Header) error {
+	height := header.NumberU64()
+	log.Trace("syncBreadcrumbWithTailHeader", "header.Height", height, "sc.Height", sc.Height)
+	if sc.Height <= chain.stampingStatus.Candidate {
+		return fmt.Errorf("sc(%d) lower than stamping status(%s)", sc.Height, chain.stampingStatus.String())
+	}
+
+	if err := chain.verifyStampingCertificate(header, sc); err != nil {
+		return err
+	}
+
+	if err := chain.writeHeader(header); err != nil {
+		return err
+	}
+
+	if err := chain.writeStampingCertificate(sc); err != nil {
+		return err
+	}
+	chain.updateStatusHeight(height)
+	if chain.doKeepStampingStatusUptoDate(height) {
+		for _, tailHeader := range tail {
+			err := chain.addBackwardHeader(tailHeader)
+			if err != nil {
+				return err
+			}
+		}
+
+		chain.writeStatusToDb()
+	}
+	return nil
 }
 
 func (chain *StampingChain) getTailLength(height uint64) (length uint64) {
@@ -1129,11 +1150,11 @@ func (chain *StampingChain) syncer() {
 			if chain.pm.peers.Len() < minDesiredPeerCount {
 				break
 			}
-			go chain.BeginSync()
+			go chain.Sync()
 
 		case <-forceSync.C:
 			// Force a sync even if not enough peers are present
-			go chain.BeginSync()
+			go chain.Sync()
 
 		case <-chain.pm.quitSync:
 			return
@@ -1141,20 +1162,20 @@ func (chain *StampingChain) syncer() {
 	}
 }
 
-func (chain *StampingChain) BeginSync() {
+func (chain *StampingChain) Sync() {
 	if !atomic.CompareAndSwapInt32(&chain.synchronising, 0, 1) {
 		log.Trace("sync is busy.")
 	}
 	defer atomic.StoreInt32(&chain.synchronising, 0)
 
-	if err := chain.Sync(); err != nil {
+	if err := chain.syncWithPeer(); err != nil {
 		log.Error("sync failed", "err", err)
 		panic(fmt.Sprintf("sync failed, err:%s", err))
 		return
 	}
 }
 
-func (chain *StampingChain) Sync() error {
+func (chain *StampingChain) syncWithPeer() error {
 	peer := chain.pm.GetBestPeer()
 	if peer == nil {
 		return nil

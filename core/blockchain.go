@@ -1742,6 +1742,18 @@ func (bc *BlockChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (i
 	return bc.hc.InsertHeaderChain(chain, whFunc, start)
 }
 
+func (bc *BlockChain) InsertStampingCertificateHeader(header *types.Header) error {
+
+}
+
+func (bc *BlockChain) InsertForwardHeader(headers []*types.Header) error {
+
+}
+
+func (bc *BlockChain) InsertBackwardHeader(headers []*types.Header) error {
+
+}
+
 // writeHeader writes a header into the local chain, given that its parent is
 // already known. If the total difficulty of the newly inserted header becomes
 // greater than the current known TD, the canonical chain is re-routed.
