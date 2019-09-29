@@ -152,6 +152,15 @@ func (chain *StampingChain) Header(height uint64) *types.Header {
 }
 
 func (chain *StampingChain) header(height uint64) *types.Header {
+	has, err := chain.eth.BlockChain().HeaderHasBeenDeleted(height)
+	if err != nil {
+		log.Error("db error", "height", height, "err", err)
+		return nil
+	}
+	if has {
+		return nil
+	}
+
 	return chain.eth.BlockChain().GetHeaderByNumber(height)
 }
 
@@ -184,7 +193,7 @@ func (chain *StampingChain) addBackwardHeader(header *types.Header) error {
 		return fmt.Errorf("next header(%d) ParentHash != header(%d).Hash", header.NumberU64()+1, header.NumberU64())
 	}
 	// TODO: header validation needs to be refactored
-	return chain.writeHeader(header)
+	return chain.writeBackwardHeader(header)
 }
 
 func (chain *StampingChain) addForwardHeader(header *types.Header) error {
@@ -193,11 +202,11 @@ func (chain *StampingChain) addForwardHeader(header *types.Header) error {
 }
 
 func (chain *StampingChain) writeHeader(header *types.Header) error {
-	n, err := chain.eth.BlockChain().InsertHeaderChain([]*types.Header{header}, 1)
-	if n != 1 {
-		//return fmt.Errorf("header insert error, n = 0")
-	}
-	return err
+	return chain.eth.BlockChain().InsertStampingCertificateHeader(header)
+}
+
+func (chain *StampingChain) writeBackwardHeader(header *types.Header) error {
+	return chain.eth.BlockChain().InsertBackwardHeader([]*types.Header{header})
 }
 
 func (chain *StampingChain) addForwardBlock(header *types.Header) error {
@@ -389,6 +398,7 @@ func (chain *StampingChain) freezeProof() {
 		chain.eth.BlockChain().DeleteStampingCertificate(height)
 		// TODO: delete headerchain
 		//delete(chain.headerChain, height)
+		chain.eth.BlockChain().WriteDeleteHeaderTag(height)
 	}
 
 	// delete sc from the minimal tail
@@ -409,6 +419,7 @@ func (chain *StampingChain) trim(start, end uint64) int {
 		chain.eth.BlockChain().DeleteStampingCertificate(height)
 		// TODO: delete headerchain
 		//delete(chain.headerChain, height)
+		chain.eth.BlockChain().WriteDeleteHeaderTag(height)
 		count += 1
 	}
 
@@ -704,11 +715,11 @@ func (chain *StampingChain) getHeaders(begin, end uint64, forward, includeFc boo
 }
 
 type breadcrumb struct {
-	StampingHeader      *types.Header
-	StampingCertificate *types.StampingCertificate
-	Tail                []*types.Header
+	StampingHeader      *types.Header              `rlp:"nil"`
+	StampingCertificate *types.StampingCertificate `rlp:"nil"`
+	Tail                []*types.Header            `rlp:"nil"`
 
-	ForwardHeader []*types.Header
+	ForwardHeader []*types.Header `rlp:"nil"`
 	//forwardFinalCertificate []*FinalCertificate
 }
 
@@ -742,7 +753,7 @@ func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (next
 			}
 		}
 
-		if err := chain.syncBreadcrumbWithTailHeader(bc.StampingHeader, bc.StampingCertificate, bc.Tail); err != nil {
+		if err = chain.syncBreadcrumbWithTailHeader(bc.StampingHeader, bc.StampingCertificate, bc.Tail); err != nil {
 			return
 		}
 

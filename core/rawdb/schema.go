@@ -62,6 +62,7 @@ var (
 	stampingCertificatePrefix = []byte("s")
 	stampingStatusKey         = []byte("StampingStatus")
 	futureStampingStatusKey   = []byte("FutureStampingStatus")
+	deleteHeaderKeyPrefix     = []byte("deleteHeader")
 
 	preimageCounter    = metrics.NewRegisteredCounter("db/preimage/total", nil)
 	preimageHitCounter = metrics.NewRegisteredCounter("db/preimage/hits", nil)
@@ -140,4 +141,8 @@ func configKey(hash common.Hash) []byte {
 // stampingCertificateKey = stampingCertificatePrefix + num (uint64 big endian)
 func stampingCertificateKey(number uint64) []byte {
 	return append(stampingCertificatePrefix, encodeBlockNumber(number)...)
+}
+
+func deleteHeaderKey(number uint64) []byte {
+	return append(deleteHeaderKeyPrefix, encodeBlockNumber(number)...)
 }

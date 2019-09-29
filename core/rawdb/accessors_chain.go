@@ -471,3 +471,17 @@ func readStampingStatus(db DatabaseReader, key []byte) (*types.StampingStatus, e
 	}
 	return status, nil
 }
+
+func WriteDeleteHeaderTag(db DatabaseWriter, number uint64) {
+	data, err := rlp.EncodeToBytes(number)
+	if err != nil {
+		log.Crit("Failed to RLP encode heigit", "err", err)
+	}
+	if err := db.Put(deleteHeaderKey(number), data); err != nil {
+		log.Crit("Failed to store sc storage", "err", err)
+	}
+}
+
+func HasDeleteHeaderTag(db DatabaseReader, number uint64) (bool, error) {
+	return db.Has(deleteHeaderKey(number))
+}

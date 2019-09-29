@@ -1724,13 +1724,6 @@ func (bc *BlockChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (i
 		return i, err
 	}
 
-	// Make sure only one thread manipulates the chain at once
-	bc.chainmu.Lock()
-	defer bc.chainmu.Unlock()
-
-	bc.wg.Add(1)
-	defer bc.wg.Done()
-
 	whFunc := func(header *types.Header) error {
 		bc.mu.Lock()
 		defer bc.mu.Unlock()
@@ -1739,19 +1732,48 @@ func (bc *BlockChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (i
 		return err
 	}
 
-	return bc.hc.InsertHeaderChain(chain, whFunc, start)
+	return bc.insertHeaderFunc(chain, whFunc, start)
 }
 
 func (bc *BlockChain) InsertStampingCertificateHeader(header *types.Header) error {
+	start := time.Now()
 
-}
+	whFunc := func(header *types.Header) error {
+		bc.mu.Lock()
+		defer bc.mu.Unlock()
 
-func (bc *BlockChain) InsertForwardHeader(headers []*types.Header) error {
+		err := bc.hc.WriteStampingCertificateHeader(header)
+		return err
+	}
 
+	_, err := bc.insertHeaderFunc([]*types.Header{header}, whFunc, start)
+	return err
 }
 
 func (bc *BlockChain) InsertBackwardHeader(headers []*types.Header) error {
+	start := time.Now()
 
+	whFunc := func(header *types.Header) error {
+		bc.mu.Lock()
+		defer bc.mu.Unlock()
+
+		err := bc.hc.WriteBackwardHeader(header)
+		return err
+	}
+
+	_, err := bc.insertHeaderFunc(headers, whFunc, start)
+	return err
+}
+
+func (bc *BlockChain) insertHeaderFunc(headers []*types.Header, whFunc WhCallback, start time.Time) (int, error) {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	return bc.hc.InsertHeaderChain(headers, whFunc, start)
 }
 
 // writeHeader writes a header into the local chain, given that its parent is
@@ -1925,4 +1947,12 @@ func (bc *BlockChain) WriteFutureStampingCertificateStatus(status *types.Stampin
 
 func (bc *BlockChain) GetFutureStampingStatus() *types.StampingStatus {
 	return rawdb.ReadFutureStampingStatus(bc.db)
+}
+
+func (bc *BlockChain) WriteDeleteHeaderTag(number uint64) {
+	rawdb.WriteDeleteHeaderTag(bc.db, number)
+}
+
+func (bc *BlockChain) HeaderHasBeenDeleted(number uint64) (bool, error) {
+	return rawdb.HasDeleteHeaderTag(bc.db, number)
 }
