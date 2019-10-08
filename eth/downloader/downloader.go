@@ -26,13 +26,13 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	kaleido "github.com/kaleidochain/kaleido"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/core/rawdb"
 	"github.com/kaleidochain/kaleido/core/types"
 	"github.com/kaleidochain/kaleido/ethdb"
 	"github.com/kaleidochain/kaleido/event"
-	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/kaleidochain/kaleido/params"
 )
 
@@ -828,6 +828,11 @@ func (d *Downloader) findAncestor(p *peerConnection, remoteHeader *types.Header)
 					break
 				}
 				header := d.lightchain.GetHeaderByHash(h) // Independent of sync mode, header surely exists
+				if header == nil {
+					p.log.Debug("Db has block, but no requested header", "number", n, "hash", h)
+					end = check
+					break
+				}
 				if header.Number.Uint64() != check {
 					p.log.Debug("Received non requested header", "number", header.Number, "hash", header.Hash(), "request", check)
 					return 0, errBadPeer
