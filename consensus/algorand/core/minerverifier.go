@@ -140,7 +140,7 @@ func (mv *MinerVerifier) String() string {
 		mv.voteVerifier)
 }
 
-func (mv *MinerVerifier) GenesisString() string {
+func (mv *MinerVerifier) KeyValueStorage() []common.Hash {
 	minerContract := state.NewMinerContract(mv.config)
 
 	offset := minerContract.MakeMinerInfoKey(mv.start, mv.miner).Big()
@@ -150,10 +150,23 @@ func (mv *MinerVerifier) GenesisString() string {
 	offset = offset.Add(offset, common.Big1)
 	third256 := common.BytesToHash(offset.Bytes())
 
+	kvs := make([]common.Hash, 6)
+	kvs[0] = first256
+	kvs[1] = state.MakeStartLifespanCoinbase(mv.start, mv.lifespan, mv.coinbase)
+
+	kvs[2] = second256
+	kvs[3] = common.Hash(mv.vrfVerifier)
+
+	kvs[4] = third256
+	kvs[5] = common.Hash(mv.voteVerifier)
+
+	return kvs
+}
+
+func (mv *MinerVerifier) GenesisString() string {
+	kvs := mv.KeyValueStorage()
 	return fmt.Sprintf("0x%x = 0x%x, 0x%x = 0x%x, 0x%x = 0x%x",
-		first256, state.MakeStartLifespanCoinbase(mv.start, mv.lifespan, mv.coinbase),
-		second256, mv.vrfVerifier,
-		third256, mv.voteVerifier)
+		kvs[0], kvs[1], kvs[2], kvs[3], kvs[4], kvs[5])
 }
 
 func (mv *MinerVerifier) Validate(height uint64) bool {
