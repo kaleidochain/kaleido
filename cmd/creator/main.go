@@ -41,14 +41,12 @@ func main() {
 
 	if len(*contract) > 0 && len(*creator) > 0 {
 		contractAddr := common.HexToAddress(*contract)
-		slotKey := vm.CreatorSlotKey(&contractAddr)
+		slotKey := vm.CreatorSlotKey(contractAddr)
 
 		account.Storage[slotKey] = common.HexToHash(*creator)
 	} else {
 		for _, item := range systemContracts {
-			contractAddr := common.HexToAddress(item.contract)
-			slotKey := vm.CreatorSlotKey(&contractAddr)
-
+			slotKey := vm.CreatorSlotKey(common.HexToAddress(item.contract))
 			account.Storage[slotKey] = common.HexToHash(item.creator)
 		}
 	}
