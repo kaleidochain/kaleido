@@ -393,7 +393,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			}
 			proof, err := pm.blockchain.BuildProof(origin.Certificate)
 			if err != nil {
-				p.Log().Error("BuildProof error, height:%d", origin.Number.Uint64())
+				p.Log().Error("BuildProof error", "height", origin.Number.Uint64(), "error", err)
 				break
 			}
 			origin.Certificate.TrieProof = proof

@@ -241,6 +241,8 @@ func NewContext(eth Backend, broadcaster Broadcaster, config *params.ChainConfig
 		recover: true,
 	}
 
+	context.mkm.StartUpdateRoutine(eth.BlockChain())
+
 	return context
 }
 
