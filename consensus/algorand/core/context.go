@@ -27,8 +27,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/kaleidochain/kaleido/common/hexutil"
-
 	"github.com/kaleidochain/kaleido/crypto/ed25519"
 
 	"github.com/ethereum/go-ethereum/rlp"
@@ -1017,16 +1015,6 @@ func (ctx *Context) handleProposalBlock(block *ProposalBlockData, from string) e
 	err = mv.VerifySeed(block.Height, ctx.parent.Seed(), ctx.parent.Hash(), block.Block.Seed(), block.Block.SeedProof())
 	if err != nil {
 		log.Error("verify seed failed", "err", err, "msg", block)
-		seed := block.Block.Seed()
-		pseed := ctx.parent.Seed()
-		proof := block.Block.SeedProof()
-		log.Error("args", "seed", hexutil.Encode(seed[:]),
-			"proof", hexutil.Encode(proof[:]),
-			"block height", block.Block.NumberU64(),
-			"block hash", block.Block.Hash(),
-			"parent seed", hexutil.Encode(pseed[:]),
-			"parent height", ctx.parent.NumberU64(),
-			"parent Hash", ctx.parent.Hash())
 		return err
 	}
 
