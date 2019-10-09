@@ -568,12 +568,8 @@ func (pm *ProtocolManager) getProposalBlockByHeight(height uint64) *core.Proposa
 		return nil
 	}
 
-	// remove Certificate from header
-	headerNoCert := block.Header()
-	headerNoCert.Certificate = new(types.Certificate)
-
 	certificate := block.Certificate()
-	data := core.NewProposalBlockDataFromProposalStorage(&certificate.Proposal, block.WithSeal(headerNoCert))
+	data := core.NewProposalBlockDataFromProposalStorage(&certificate.Proposal, block)
 	return data
 }
 
