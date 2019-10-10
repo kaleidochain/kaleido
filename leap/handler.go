@@ -101,7 +101,7 @@ func (pm *ProtocolManager) NodeInfo() *NodeInfo {
 func (pm *ProtocolManager) runPeer(p *peer) error {
 	// first update HR to bootstrap gossip
 	// handshake must be done at first
-	err := p.Handshake(pm.networkId, pm.eth.BlockChain().Genesis().Hash(), pm.stampingChain.ChainStatus())
+	err := p.Handshake(pm.networkId, pm.eth.BlockChain().Genesis().Hash(), *pm.config.Stamping, pm.stampingChain.ChainStatus())
 	if err != nil {
 		if err == io.EOF {
 			p.Log().Debug("peer closed on handshake")
@@ -175,7 +175,7 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 		if err := msg.Decode(&data); err != nil {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
-		bc, err := pm.stampingChain.getNextBreadcrumb(data.Begin, data.End)
+		bc, err := pm.stampingChain.getNextBreadcrumb(data.Begin, data.End, data.Status)
 		if err != nil {
 			p.Log().Error("get breadcrumb err", "begin", data.Begin, "end", data.End, "err", err)
 		}

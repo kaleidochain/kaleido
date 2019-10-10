@@ -19,6 +19,11 @@ import (
 	"github.com/kaleidochain/kaleido/params"
 )
 
+var (
+	errLowerThanHeight = fmt.Errorf("block lower than stamping height")
+	errExists          = fmt.Errorf("header exists")
+)
+
 const (
 	chainStampingChanSize     = 10
 	checkNewSCInterval        = 6 * time.Second
@@ -183,7 +188,8 @@ func (chain *StampingChain) addHeaderWithHash(header *types.Header, hash common.
 
 func (chain *StampingChain) addBackwardHeader(header *types.Header) error {
 	if chain.header(header.NumberU64()) != nil {
-		return fmt.Errorf("header(%d) already exists", header.NumberU64())
+		log.Warn("header exist", "height", header.NumberU64())
+		//return fmt.Errorf("header(%d) already exists", header.NumberU64())
 	}
 	nextHeader := chain.header(header.NumberU64() + 1)
 	if nextHeader == nil {
@@ -212,10 +218,12 @@ func (chain *StampingChain) writeBackwardHeader(header *types.Header) error {
 func (chain *StampingChain) addForwardBlock(header *types.Header) error {
 	height := header.NumberU64()
 	if height <= chain.stampingStatus.Height {
-		return fmt.Errorf("block(%d) lower than stamping status(%s)", height, chain.stampingStatus.String())
+		log.Warn("block lower than stamping status", "height", height, "status", chain.stampingStatus.String())
+		return errLowerThanHeight
 	}
 	if h := chain.header(height); h != nil {
-		return fmt.Errorf("block(%d) exists", height)
+		log.Warn("block exist", "height", height)
+		//return errExists
 	}
 
 	parent := chain.header(height - 1)
@@ -463,7 +471,7 @@ func (chain *StampingChain) PrintProperty() {
 	sumForwardLength := 0
 
 	for begin, end := chain.config.Stamping.HeightB()+1, chain.config.Stamping.HeightB()+chain.config.Stamping.B; end <= chain.stampingStatus.Fz; {
-		breadcrumb, err := chain.getNextBreadcrumb(begin, end)
+		breadcrumb, err := chain.getNextBreadcrumb(begin, end, chain.stampingStatus)
 		if err != nil {
 			panic("invalid chain")
 		}
@@ -636,12 +644,18 @@ func (chain *StampingChain) backwardSyncRangeOnlyByHeader(p *peer, start, end ui
 	return nil
 }
 
-func (chain *StampingChain) getNextBreadcrumb(begin, end uint64) (bc *breadcrumb, err error) {
+func (chain *StampingChain) getNextBreadcrumb(begin, end uint64, status types.StampingStatus) (bc *breadcrumb, err error) {
 	defer func() {
-		log.Debug("getNextBreadcrumb return", "begin", begin, "end", end, "bc", bc.String())
+		log.Debug("getNextBreadcrumb return", "begin", begin, "end", end, "peer.status", status.String(), "bc", bc.String())
 	}()
+
 	bc = &breadcrumb{}
-	for height := end; height >= begin; height-- {
+	if begin < status.Fz || begin > end {
+		return bc, fmt.Errorf("param err, begin:%d, end:%d, status:%s", begin, end, status.String())
+	}
+
+	start := MinUint64(end, chain.stampingStatus.Candidate)
+	for height := start; height >= begin; height-- {
 		if sc := chain.stampingCertificate(height); sc != nil {
 			header := chain.header(height)
 			if header == nil {
@@ -665,7 +679,8 @@ func (chain *StampingChain) getNextBreadcrumb(begin, end uint64) (bc *breadcrumb
 		}
 	}
 
-	for height := begin; height <= chain.stampingStatus.Height; height++ {
+	start = MaxUint64(begin, status.Height+1)
+	for height := start; height <= chain.stampingStatus.Height; height++ {
 		header := chain.header(height)
 		if header == nil {
 			panic(fmt.Sprintf("cannot find header(%d)", height))
@@ -732,8 +747,13 @@ func (bc *breadcrumb) String() string {
 
 func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (nextBegin, nextEnd uint64, err error) {
 	var bc *breadcrumb
-	bc, err = p.GetNextBreadcrumb(begin, end)
+	bc, err = p.GetNextBreadcrumb(begin, end, chain.stampingStatus)
 	if err != nil {
+		return
+	}
+
+	if bc.StampingHeader == nil && len(bc.ForwardHeader) < 1 {
+		err = fmt.Errorf("get no data from peer:%s", p.ID())
 		return
 	}
 
@@ -762,6 +782,9 @@ func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (next
 	} else {
 		for _, h := range bc.ForwardHeader {
 			err = chain.addForwardBlock(h)
+			if err == errExists || err == errLowerThanHeight {
+				continue
+			}
 			if err != nil {
 				return
 			}
@@ -884,13 +907,14 @@ func (chain *StampingChain) handleLoop() {
 
 func (chain *StampingChain) handleStampingEvent(stampingEvent core.ChainStampingEvent) {
 	chain.handleUpdateStatus()
+	chain.writeStatusToDb()
 
 	if err := chain.handleStampingVote(stampingEvent.Vote); err != nil {
-		log.Error("handleStampingVote error", "err", err)
+		log.Error("handleStampingVote error", "status", chain.stampingStatus, "err", err)
 		return
 	}
 
-	log.Trace("handleStampingEvent done", "Status", chain.stampingStatus, "vote", stampingEvent.Vote.String())
+	log.Trace("handleStampingEvent done", "status", chain.stampingStatus, "vote", stampingEvent.Vote.String())
 
 	//chain.pm.Broadcast(StampingVoteMsg, stampingEvent.Vote)
 }
@@ -915,6 +939,8 @@ func (chain *StampingChain) handleUpdateStatus() {
 	chain.stampingStatus.Height = currentBlock.NumberU64()
 
 	chain.pm.Broadcast(StampingStatusMsg, &chain.stampingStatus)
+
+	log.Trace("handleUpdateStatus done", "Status", chain.stampingStatus)
 }
 
 func (chain *StampingChain) handleStampingVote(vote *types.StampingVote) error {

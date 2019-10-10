@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaleidochain/kaleido/params"
+
 	"github.com/kaleidochain/kaleido/core/types"
 
 	"github.com/kaleidochain/kaleido/common"
@@ -34,6 +36,7 @@ const msgChanSize = 4096
 
 type getNextBreadcrumbData struct {
 	Begin, End uint64
+	Status     types.StampingStatus
 }
 
 type getHeadersData struct {
@@ -51,6 +54,7 @@ type HandshakeData struct {
 	Version   uint32
 	NetworkId uint64
 	Genesis   common.Hash
+	Stamping  params.StampingConfig
 	types.StampingStatus
 }
 

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaleidochain/kaleido/params"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/core/types"
@@ -81,7 +83,7 @@ func (p *peer) IsClosed() bool {
 }
 
 func (p *peer) Log() log.Logger {
-	return log.New("pid", p.id, "HR", p.statusString())
+	return log.New("pid", p.id, "ip", p.RemoteAddr().String(), "HR", p.statusString())
 }
 
 func (p *peer) statusString() string {
@@ -99,7 +101,7 @@ func (p *peer) string() string {
 	return fmt.Sprintf("%s-%d-%d-%d-%d", p.id, p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.scStatus.Height)
 }
 
-func (p *peer) Handshake(networkId uint64, genesis common.Hash, status types.StampingStatus) error {
+func (p *peer) Handshake(networkId uint64, genesis common.Hash, stampingConfig params.StampingConfig, status types.StampingStatus) error {
 	// Send out own handshake in a new thread
 	errCh := make(chan error, 2)
 	var handshake HandshakeData // safe to read after two values have been received from errCh
@@ -109,6 +111,7 @@ func (p *peer) Handshake(networkId uint64, genesis common.Hash, status types.Sta
 			Version:   p.version,
 			NetworkId: networkId,
 			Genesis:   genesis,
+			Stamping:  stampingConfig,
 			StampingStatus: types.StampingStatus{
 				Height:    status.Height,
 				Candidate: status.Candidate,
@@ -118,7 +121,7 @@ func (p *peer) Handshake(networkId uint64, genesis common.Hash, status types.Sta
 		})
 	}()
 	go func() {
-		errCh <- p.readStatus(networkId, genesis, &handshake)
+		errCh <- p.readStatus(networkId, genesis, stampingConfig, &handshake)
 	}()
 	timeout := time.NewTimer(handshakeTimeout)
 	defer timeout.Stop()
@@ -138,7 +141,7 @@ func (p *peer) Handshake(networkId uint64, genesis common.Hash, status types.Sta
 	return nil
 }
 
-func (p *peer) readStatus(networkId uint64, genesis common.Hash, handshake *HandshakeData) (err error) {
+func (p *peer) readStatus(networkId uint64, genesis common.Hash, stampingConfig params.StampingConfig, handshake *HandshakeData) (err error) {
 	msg, err := p.rw.ReadMsg()
 	if err != nil {
 		return err
@@ -158,6 +161,9 @@ func (p *peer) readStatus(networkId uint64, genesis common.Hash, handshake *Hand
 	}
 	if handshake.Genesis != genesis {
 		return errResp(ErrGenesisBlockMismatch, "%x (!= %x)", handshake.Genesis[:8], genesis[:8])
+	}
+	if handshake.Stamping != stampingConfig {
+		return errResp(ErrStampingConfigMismatch, "%v (!= %v)", handshake.Stamping, stampingConfig)
 	}
 	if handshake.NetworkId != networkId {
 		return errResp(ErrNetworkIdMismatch, "%d (!= %d)", handshake.NetworkId, networkId)
@@ -330,9 +336,9 @@ func (p *peer) GetHeaders(begin, end uint64, forward, includeFc bool) (headers [
 	}
 }
 
-func (p *peer) GetNextBreadcrumb(begin, end uint64) (bc *breadcrumb, err error) {
+func (p *peer) GetNextBreadcrumb(begin, end uint64, status types.StampingStatus) (bc *breadcrumb, err error) {
 	go func() {
-		if e := p.requestNextBreadcrumb(begin, end); e != nil {
+		if e := p.requestNextBreadcrumb(begin, end, status); e != nil {
 			p.Log().Error("requestNextBreadcrumb failed", "begin", begin, "end", end, "err", e)
 		}
 	}()
@@ -353,9 +359,9 @@ func (p *peer) SendHeaders(headers []*types.Header) error {
 	return p2p.Send(p.rw, HeadersMsg, headers)
 }
 
-func (p *peer) requestNextBreadcrumb(begin, end uint64) error {
+func (p *peer) requestNextBreadcrumb(begin, end uint64, status types.StampingStatus) error {
 	p.Log().Debug("Fetching next breadcrump", "begin", begin, "end", end)
-	return p2p.Send(p.rw, GetNextBreadcrumbMsg, &getNextBreadcrumbData{Begin: begin, End: end})
+	return p2p.Send(p.rw, GetNextBreadcrumbMsg, &getNextBreadcrumbData{Begin: begin, End: end, Status: status})
 }
 
 func (p *peer) requestHeaders(begin, end uint64, forward, includeFc bool) error {

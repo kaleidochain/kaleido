@@ -1755,7 +1755,7 @@ func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
 		return nil
 	}
 
-	sortitionHash, sortitionProof, sortitionWeight := ctx.stampingSortition(height, parent.Seed(), parentStatedb)
+	sortitionHash, sortitionProof, sortitionWeight := ctx.stampingSortition(height, parent, parentStatedb)
 	if sortitionWeight == 0 {
 		log.Trace("MakeStampingVote sortitionWeight == 0",
 			"Height", height)
@@ -1799,14 +1799,14 @@ func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
 	return vote
 }
 
-func (ctx *Context) stampingSortition(height uint64, seed ed25519.VrfOutput256, parentStatedb *state.StateDB) (hash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64) {
+func (ctx *Context) stampingSortition(height uint64, parent *types.Header, parentStatedb *state.StateDB) (hash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64) {
 	mk, err := ctx.mkm.GetMinerKey(ctx.currentMiner, height)
 	if err != nil {
 		log.Warn("GetMinerKey failed", "err", err, "Height", height, "miner", ctx.currentMiner)
 		return
 	}
 
-	hash, proof, j, err = mk.StampingSortition(height, seed, parentStatedb, ctx.parent.TotalBalanceOfMiners())
+	hash, proof, j, err = mk.StampingSortition(height, parent.Seed(), parentStatedb, parent.TotalBalanceOfMiners)
 	if err != nil {
 		log.Error("Sortition failed", "err", err, "Height", height, "miner", ctx.currentMiner)
 		return

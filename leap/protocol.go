@@ -41,6 +41,7 @@ const (
 	ErrSuspendedPeer
 	ErrNetworkIdMismatch
 	ErrGenesisBlockMismatch
+	ErrStampingConfigMismatch
 )
 
 func (e errCode) String() string {
