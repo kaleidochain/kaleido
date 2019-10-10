@@ -254,7 +254,7 @@ func (pm *ProtocolManager) gossipVotesLoop(p *peer) {
 		scStatus := pm.stampingChain.ChainStatus()
 		peerScStatus := p.ChainStatus()
 
-		p.Log().Trace("gossip begin", "status", pm.stampingChain.StatusString())
+		p.Log().Trace("leap gossip begin", "status", pm.stampingChain.StatusString())
 
 		if scStatus.Height < peerScStatus.Candidate || scStatus.Candidate > peerScStatus.Height {
 			needSleep = true

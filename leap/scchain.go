@@ -246,6 +246,7 @@ func (chain *StampingChain) addForwardBlock(header *types.Header) error {
 
 	chain.updateStatusHeight(height)
 	chain.writeStatusToDb()
+	chain.broadcastStampingStatusMsg()
 	return nil
 }
 
@@ -331,6 +332,7 @@ func (chain *StampingChain) keepStampingChainUptoDate(height uint64) {
 	chain.writeFutureStatusToDb(&futureStampingStatus)
 	if chain.doKeepStampingStatusUptoDate(height) {
 		chain.writeStatusToDb()
+		chain.broadcastStampingStatusMsg()
 	}
 }
 
@@ -683,7 +685,8 @@ func (chain *StampingChain) getNextBreadcrumb(begin, end uint64, status types.St
 	for height := start; height <= chain.stampingStatus.Height; height++ {
 		header := chain.header(height)
 		if header == nil {
-			panic(fmt.Sprintf("cannot find header(%d)", height))
+			//panic(fmt.Sprintf("cannot find header(%d)", height))
+			break
 		}
 
 		bc.ForwardHeader = append(bc.ForwardHeader, header)
@@ -825,6 +828,7 @@ func (chain *StampingChain) syncBreadcrumbWithTailHeader(header *types.Header, s
 		}
 
 		chain.writeStatusToDb()
+		chain.broadcastStampingStatusMsg()
 	}
 	return nil
 }
@@ -908,6 +912,7 @@ func (chain *StampingChain) handleLoop() {
 func (chain *StampingChain) handleStampingEvent(stampingEvent core.ChainStampingEvent) {
 	chain.handleUpdateStatus()
 	chain.writeStatusToDb()
+	chain.broadcastStampingStatusMsg()
 
 	if err := chain.handleStampingVote(stampingEvent.Vote); err != nil {
 		log.Error("handleStampingVote error", "status", chain.stampingStatus, "err", err)
@@ -938,9 +943,11 @@ func (chain *StampingChain) handleUpdateStatus() {
 	currentBlock := chain.eth.BlockChain().CurrentBlock()
 	chain.stampingStatus.Height = currentBlock.NumberU64()
 
-	chain.pm.Broadcast(StampingStatusMsg, &chain.stampingStatus)
-
 	log.Trace("handleUpdateStatus done", "Status", chain.stampingStatus)
+}
+
+func (chain *StampingChain) broadcastStampingStatusMsg() {
+	chain.pm.Broadcast(StampingStatusMsg, &chain.stampingStatus)
 }
 
 func (chain *StampingChain) handleStampingVote(vote *types.StampingVote) error {
@@ -1207,7 +1214,7 @@ func (chain *StampingChain) Sync() {
 
 	if err := chain.syncWithPeer(); err != nil {
 		log.Error("sync failed", "err", err)
-		panic(fmt.Sprintf("sync failed, err:%s", err))
+		//panic(fmt.Sprintf("sync failed, err:%s", err))
 		return
 	}
 }

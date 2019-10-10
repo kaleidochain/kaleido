@@ -194,18 +194,18 @@ func ToHasSCVoteData(vote *types.StampingVote) *HasSCVoteData {
 }
 
 type StampingVotes struct {
-	votes  map[common.Address]*types.StampingVote
+	votes  map[string]*types.StampingVote
 	weight uint64
 	ts     int64
 }
 
 func (s *StampingVotes) hasVote(address common.Address) bool {
-	_, ok := s.votes[address]
+	_, ok := s.votes[address.String()]
 	return ok
 }
 
 func (s *StampingVotes) addVote(vote *types.StampingVote) {
-	s.votes[vote.Address] = vote
+	s.votes[vote.Address.String()] = vote
 }
 
 func (s *StampingVotes) setEnoughTs() {
@@ -214,6 +214,6 @@ func (s *StampingVotes) setEnoughTs() {
 
 func NewStampingVotes() *StampingVotes {
 	return &StampingVotes{
-		votes: make(map[common.Address]*types.StampingVote),
+		votes: make(map[string]*types.StampingVote),
 	}
 }
