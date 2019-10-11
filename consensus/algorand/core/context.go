@@ -1305,11 +1305,8 @@ func (ctx *Context) resetParentProposalBlockData() {
 		return
 	}
 
-	headerNoCert := ctx.parent.Header()
-	headerNoCert.Certificate = new(types.Certificate)
-
 	certificate := ctx.parent.Certificate()
-	ctx.parentProposalBlockData = NewProposalBlockDataFromProposalStorage(&certificate.Proposal, ctx.parent.WithSeal(headerNoCert))
+	ctx.parentProposalBlockData = NewProposalBlockDataFromProposalStorage(&certificate.Proposal, ctx.parent)
 }
 
 func (ctx *Context) GetParentProposalBlockData(height uint64) *ProposalBlockData {
