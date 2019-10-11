@@ -1163,7 +1163,7 @@ func (chain *StampingChain) PickBuildingSCVoteToPeer(begin, end uint64, p *peer)
 	defer chain.mutexChain.RUnlock()
 
 	var startLog, endLog uint64
-	for height := begin + 1; height <= end; height++ {
+	for height := begin; height <= end; height++ {
 		votes := chain.buildingStampingVoteWindow[height]
 		if err := p.PickBuildingAndSend(votes); err == nil {
 			sent = true
@@ -1263,8 +1263,8 @@ func (chain *StampingChain) sync(peer *peer) error {
 		}
 	}
 
-	// C+1 - peer.currentHeight
-	for begin, end := chain.stampingStatus.Candidate+1, chain.stampingStatus.Candidate+chain.config.Stamping.B; chain.stampingStatus.Height < peer.scStatus.Height; {
+	// H+1 - peer.currentHeight
+	for begin, end := chain.stampingStatus.Height+1, chain.stampingStatus.Height+chain.config.Stamping.B; chain.stampingStatus.Height < peer.scStatus.Height; {
 		//fmt.Printf("process begin:[%d, %d]\n", begin, end)
 		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {

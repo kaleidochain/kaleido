@@ -262,14 +262,14 @@ func (pm *ProtocolManager) gossipVotesLoop(p *peer) {
 		}
 
 		if peerScStatus.Candidate < scStatus.Candidate {
-			if pm.stampingChain.pickFrozenSCVoteToPeer(peerScStatus.Candidate, scStatus.Candidate, p) {
+			if pm.stampingChain.pickFrozenSCVoteToPeer(peerScStatus.Candidate+1, scStatus.Candidate, p) {
 				needSleep = true
 				continue
 			}
 		}
 
 		//(C, H]
-		windowFloor := MaxUint64(scStatus.Candidate, peerScStatus.Candidate)
+		windowFloor := MaxUint64(scStatus.Candidate+1, peerScStatus.Candidate+1)
 		windowCeil := MinUint64(scStatus.Height, peerScStatus.Height)
 		if pm.stampingChain.PickBuildingSCVoteToPeer(windowFloor, windowCeil, p) {
 			needSleep = true
