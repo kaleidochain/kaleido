@@ -576,7 +576,7 @@ func (chain *StampingChain) formatHeader(header *types.Header, sc *types.Stampin
 		zpcTag = "C"
 	}
 
-	return fmt.Sprintf("%2s[%4d(%1s%1s%1s)]", arrow, height, zpcTag, fcTag, scTag)
+	return fmt.Sprintf("%2s[%5d(%1s%1s%1s)]", arrow, height, zpcTag, fcTag, scTag)
 }
 
 func (chain *StampingChain) HeaderAndFinalCertificate(height uint64) *types.Header {
@@ -1037,7 +1037,6 @@ func (chain *StampingChain) checkEnoughVotesAndAddToSCChain() (err error) {
 	}
 	log.Trace("check enough done", "max height", maxEnoughVotesHeight)
 
-	chain.print()
 	return nil
 }
 
@@ -1229,7 +1228,6 @@ func (chain *StampingChain) syncWithPeer() error {
 	defer chain.mutexChain.Unlock()
 
 	log.Trace("begin sync", "peer", peer.ID().String())
-	chain.print()
 	err := chain.sync(peer)
 	log.Trace("end sync", "peer", peer.ID().String(), "err", err)
 	chain.print()
