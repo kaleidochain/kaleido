@@ -15,14 +15,16 @@ import (
 )
 
 const (
-	HandshakeMsg         = 0x00
-	StampingStatusMsg    = 0x01
-	StampingVoteMsg      = 0x02
-	HasSCVoteMsg         = 0x03
-	GetNextBreadcrumbMsg = 0x04
-	NextBreadcrumbMsg    = 0x05
-	GetHeadersMsg        = 0x06
-	HeadersMsg           = 0x07
+	HandshakeMsg          = 0x00
+	StampingStatusMsg     = 0x01
+	StampingVoteMsg       = 0x02
+	HasSCVoteMsg          = 0x03
+	GetNextBreadcrumbMsg  = 0x04
+	NextBreadcrumbMsg     = 0x05
+	GetHeadersMsg         = 0x06
+	HeadersMsg            = 0x07
+	GetBodyAndReceiptsMsg = 0x08
+	BodyAndReceiptsMsg    = 0x09
 )
 
 var CodeToString = map[uint64]string{
@@ -42,6 +44,11 @@ type getNextBreadcrumbData struct {
 type getHeadersData struct {
 	Begin, End         uint64
 	Forward, IncludeFc bool
+}
+
+type blockData struct {
+	Block    *types.Block
+	Receipts types.Receipts
 }
 
 type message struct {

@@ -42,6 +42,7 @@ type peer struct {
 	voteChan       chan *types.StampingVote
 	breadcrumbChan chan *breadcrumb
 	headersChan    chan []*types.Header
+	blockChan      chan *blockData
 
 	scStatus types.StampingStatus
 	counter  *HeightVoteSet
@@ -62,6 +63,7 @@ func newPeer(version uint32, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
 		voteChan:       make(chan *types.StampingVote, msgQueueSize),
 		breadcrumbChan: make(chan *breadcrumb, 1),
 		headersChan:    make(chan []*types.Header, 1),
+		blockChan:      make(chan *blockData, 1),
 	}
 }
 
@@ -351,6 +353,21 @@ func (p *peer) GetNextBreadcrumb(begin, end uint64, status types.StampingStatus)
 	}
 }
 
+func (p *peer) GetBlockAndReceipts(hash common.Hash) (block *blockData, err error) {
+	go func() {
+		if e := p.requestBlockAndReceipts(hash); e != nil {
+			p.Log().Error("requestBlockAndReceipts failed", "hash", hash, "err", e)
+		}
+	}()
+
+	select {
+	case block = <-p.blockChan:
+		return
+	case <-p.closeChan:
+		return nil, errClosed
+	}
+}
+
 func (p *peer) SendNextBreadcrumb(bc *breadcrumb) error {
 	return p2p.Send(p.rw, NextBreadcrumbMsg, bc)
 }
@@ -359,14 +376,23 @@ func (p *peer) SendHeaders(headers []*types.Header) error {
 	return p2p.Send(p.rw, HeadersMsg, headers)
 }
 
+func (p *peer) SendBlockAndReceipts(block *types.Block, receiptes types.Receipts) error {
+	return p2p.Send(p.rw, BodyAndReceiptsMsg, &blockData{Block: block, Receipts: receiptes})
+}
+
 func (p *peer) requestNextBreadcrumb(begin, end uint64, status types.StampingStatus) error {
-	p.Log().Debug("Fetching next breadcrump", "begin", begin, "end", end)
+	p.Log().Debug("Fetching next breadcrumb", "begin", begin, "end", end)
 	return p2p.Send(p.rw, GetNextBreadcrumbMsg, &getNextBreadcrumbData{Begin: begin, End: end, Status: status})
 }
 
 func (p *peer) requestHeaders(begin, end uint64, forward, includeFc bool) error {
 	p.Log().Debug("Fetching batch of headers", "begin", begin, "end", end, "forward", forward, "include", includeFc)
 	return p2p.Send(p.rw, GetHeadersMsg, &getHeadersData{Begin: begin, End: end, Forward: forward, IncludeFc: includeFc})
+}
+
+func (p *peer) requestBlockAndReceipts(hash common.Hash) error {
+	p.Log().Debug("Fetching block", "hash", hash.String())
+	return p2p.Send(p.rw, GetBodyAndReceiptsMsg, hash)
 }
 
 func (p *peer) DeliverBCData(breadcrumbChan chan *breadcrumb, b *breadcrumb) {
@@ -381,6 +407,15 @@ func (p *peer) DeliverBCData(breadcrumbChan chan *breadcrumb, b *breadcrumb) {
 func (p *peer) DeliverHeadersData(headersChan chan []*types.Header, headers []*types.Header) {
 	select {
 	case headersChan <- headers:
+		return
+	case <-p.closeChan:
+		return
+	}
+}
+
+func (p *peer) DeliverBlock(blockChan chan *blockData, block *blockData) {
+	select {
+	case blockChan <- block:
 		return
 	case <-p.closeChan:
 		return

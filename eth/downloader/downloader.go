@@ -1788,3 +1788,24 @@ func (d *Downloader) requestTTL() time.Duration {
 	}
 	return ttl
 }
+
+func (d *Downloader) FetchNodeData(root common.Hash) error {
+	stateSync := d.syncState(root)
+	defer stateSync.Cancel()
+	go func() {
+		if err := stateSync.Wait(); err != nil && err != errCancelStateFetch {
+			d.queue.Close() // wake up Results
+		}
+	}()
+
+	select {
+	case <-stateSync.done:
+		if stateSync.err != nil {
+			return stateSync.err
+		}
+	case <-d.cancelCh:
+		return errCancelStateFetch
+	}
+
+	return nil
+}

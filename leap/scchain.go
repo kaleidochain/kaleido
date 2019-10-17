@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kaleidochain/kaleido/eth/downloader"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/consensus"
@@ -53,8 +55,9 @@ func MinUint64(a, b uint64) uint64 {
 type MapStampingVotes map[uint64]*StampingVotes
 
 type StampingChain struct {
-	config *params.ChainConfig
-	eth    Backend
+	config     *params.ChainConfig
+	eth        Backend
+	downloader *downloader.Downloader
 
 	mutexChain sync.RWMutex
 
@@ -70,10 +73,11 @@ type StampingChain struct {
 	synchronising int32
 }
 
-func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, networkId uint64) *StampingChain {
+func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, networkId uint64, downloader *downloader.Downloader) *StampingChain {
 	chain := &StampingChain{
-		config: config,
-		eth:    eth,
+		config:     config,
+		eth:        eth,
+		downloader: downloader,
 	}
 	chain.messageChan = make(chan message, msgChanSize)
 	chain.buildingStampingVoteWindow = make(MapStampingVotes)
@@ -602,7 +606,7 @@ func (chain *StampingChain) ChainStatus() types.StampingStatus {
 
 func (chain *StampingChain) forwardSyncRangeByHeaderAndFinalCertificate(p *peer, start, end uint64) error {
 	log.Debug("forwardSyncRangeByHeaderAndFinalCertificate", "peer", p.ID().String(), "start", start, "end", end)
-	for height := start; height <= end && height <= p.scStatus.Height; height++ {
+	for height := start; height <= end && height <= p.ChainStatus().Height; height++ {
 		if chain.hasHeader(height) {
 			continue
 		}
@@ -1227,7 +1231,8 @@ func (chain *StampingChain) syncWithPeer() error {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
-	log.Trace("begin sync", "peer", peer.ID().String())
+	log.Trace("begin sync", "peer", peer.ID().String(), "chain", chain.stampingStatus.String(), "peer", peer.statusString())
+
 	err := chain.sync(peer)
 	log.Trace("end sync", "peer", peer.ID().String(), "err", err)
 	chain.print()
@@ -1252,9 +1257,10 @@ func (chain *StampingChain) sync(peer *peer) error {
 		}
 	}
 
+	peerStatus := peer.ChainStatus()
 	// sync the first b range [Base+1, Base+B] if needed
 	baseHeight := chain.config.Stamping.BaseHeight
-	if start, end := baseHeight+1, baseHeight+chain.config.Stamping.B; chain.stampingStatus.Height < end && chain.stampingStatus.Height < peer.scStatus.Height {
+	if start, end := baseHeight+1, baseHeight+chain.config.Stamping.B; chain.stampingStatus.Height < end && chain.stampingStatus.Height < peerStatus.Height {
 		err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, start, end)
 		if err != nil {
 			return fmt.Errorf("forward synchronize the first b blocks failed: %v", err)
@@ -1262,7 +1268,7 @@ func (chain *StampingChain) sync(peer *peer) error {
 	}
 
 	// H+1 - peer.currentHeight
-	for begin, end := chain.stampingStatus.Height+1, chain.stampingStatus.Height+chain.config.Stamping.B; chain.stampingStatus.Height < peer.scStatus.Height; {
+	for begin, end := chain.stampingStatus.Height+1, chain.stampingStatus.Height+chain.config.Stamping.B; chain.stampingStatus.Height < peerStatus.Height; {
 		//fmt.Printf("process begin:[%d, %d]\n", begin, end)
 		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {
@@ -1272,6 +1278,76 @@ func (chain *StampingChain) sync(peer *peer) error {
 		begin, end = nextBegin, nextEnd
 	}
 
+	if chain.stampingStatus.Height != peerStatus.Height {
+		log.Warn("dont reach latest status", "chain", chain.stampingStatus, "peer", peerStatus.String())
+		return fmt.Errorf("donot reach latest status, chain:%s, peer:%s", chain.stampingStatus.String(), peerStatus.String())
+	}
+
+	if err := chain.fetchLatestBlock(peer); err != nil {
+
+	}
+	return nil
+}
+
+func (chain *StampingChain) fetchLatestBlock(p *peer) error {
+	if chain.stampingStatus.Height <= 1 {
+		return fmt.Errorf("sync failed, height(%d) <= 1", chain.stampingStatus.Height)
+	}
+
+	latest := chain.header(chain.stampingStatus.Height)
+	if latest == nil {
+		return fmt.Errorf("laster header not exist, height:%d", chain.stampingStatus.Height)
+	}
+
+	var block *blockData
+	var err error
+	if !chain.eth.BlockChain().HasFastBlock(latest.Hash(), latest.NumberU64()) {
+		block, err = p.GetBlockAndReceipts(latest.Hash())
+		if err != nil {
+			p.Log().Error("GetBlockAndReceipts failed", "chain", chain.stampingStatus.String())
+			return err
+		}
+	}
+
+	if !chain.eth.BlockChain().HasState(latest.Root) {
+		parentHeight := chain.stampingStatus.Height - 1
+		parent := chain.header(parentHeight)
+		if parent == nil {
+			panic(fmt.Sprintf("header not exist, height:%d", parentHeight))
+			return fmt.Errorf("header not exist, height:%d", parentHeight)
+		}
+
+		if err := chain.downloader.FetchNodeData(parent.Root); err != nil {
+			log.Error("fetch state failed", "height", parentHeight, "err", err)
+			return err
+		}
+	}
+
+	if block != nil {
+		// insert block and receipts
+		return chain.commitPivotBlock(block.Block, block.Receipts)
+	}
+
+	return nil
+}
+
+func (chain *StampingChain) commitPivotBlock(block *types.Block, receipts types.Receipts) error {
+	if err := chain.eth.BlockChain().InsertBlockAndReceipt(block, receipts); err != nil {
+		log.Error("commitPivotBlock insert block and receipt failed", "height", block.NumberU64())
+		return err
+	}
+
+	if err := chain.eth.BlockChain().FastSyncCommitHead(block.Hash()); err != nil {
+		log.Error("commitPivotBlock update currentBlock failed", "height", block.NumberU64())
+		return err
+	}
+
+	//func (bc *BlockChain) PostChainEvents(events []interface{}, logs []*types.Log) {
+	events := make([]interface{}, 0, 1)
+	events = append(events, core.ChainHeadEvent{Block: block})
+	chain.eth.BlockChain().PostChainEvents(events, nil)
+
+	log.Info("commitPivotBlock success", "height", block.NumberU64())
 	return nil
 }
 

@@ -205,6 +205,23 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 		p.Log().Debug("recv headers", "len", len(headers))
 		p.DeliverHeadersData(p.headersChan, headers)
 
+	case GetBodyAndReceiptsMsg:
+		var hash common.Hash
+		if err := msg.Decode(&hash); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		block := pm.eth.BlockChain().GetBlockByHash(hash)
+		receipts := pm.eth.BlockChain().GetReceiptsByHash(hash)
+		return p.SendBlockAndReceipts(block, receipts)
+
+	case BodyAndReceiptsMsg:
+		var block blockData
+		if err := msg.Decode(&block); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		p.Log().Debug("recv block", "block", block.Block.Hash(), "receipt", len(block.Receipts))
+		p.DeliverBlock(p.blockChan, &block)
+
 	default:
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
 	}

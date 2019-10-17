@@ -864,3 +864,7 @@ func (pm *ProtocolManager) enableAcceptTxWhenGotNewHead() {
 		}
 	}
 }
+
+func (pm *ProtocolManager) GetDownloader() *downloader.Downloader {
+	return pm.downloader
+}

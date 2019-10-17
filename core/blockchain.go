@@ -855,6 +855,10 @@ func SetReceiptsData(config *params.ChainConfig, block *types.Block, receipts ty
 // InsertReceiptChain attempts to complete an already existing header chain with
 // transaction and receipt data.
 func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain []types.Receipts) (int, error) {
+	return bc.insertReceiptChain(blockChain, receiptChain, true)
+}
+
+func (bc *BlockChain) insertReceiptChain(blockChain types.Blocks, receiptChain []types.Receipts, checkHeader bool) (int, error) {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -881,7 +885,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 			return 0, nil
 		}
 		// Short circuit if the owner header is unknown
-		if !bc.HasHeader(block.Hash(), block.NumberU64()) {
+		if checkHeader && !bc.HasHeader(block.Hash(), block.NumberU64()) {
 			return i, fmt.Errorf("containing header #%d [%x…] unknown", block.Number(), block.Hash().Bytes()[:4])
 		}
 		// Skip if the entire data is already known
@@ -938,6 +942,11 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 	log.Info("Imported new block receipts", context...)
 
 	return 0, nil
+}
+
+func (bc *BlockChain) InsertBlockAndReceipt(block *types.Block, receipts types.Receipts) error {
+	_, err := bc.insertReceiptChain(types.Blocks{block}, []types.Receipts{receipts}, false)
+	return err
 }
 
 var lastWrite uint64
