@@ -63,7 +63,7 @@ var (
 			IntervalSize:     1000 * 1000,
 		},
 		Stamping: &StampingConfig{
-			B:          20,
+			B:          10000,
 			BaseHeight: 0,
 			BaseHash:   common.Hash{},
 		},
@@ -90,7 +90,7 @@ var (
 			IntervalSize:     1000 * 1000,
 		},
 		Stamping: &StampingConfig{
-			B:          20,
+			B:          10000,
 			BaseHeight: 0,
 			BaseHash:   common.Hash{},
 		},
