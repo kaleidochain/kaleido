@@ -1278,15 +1278,12 @@ func (chain *StampingChain) sync(peer *peer) error {
 		begin, end = nextBegin, nextEnd
 	}
 
-	if chain.stampingStatus.Height != peerStatus.Height {
-		log.Warn("dont reach latest status", "chain", chain.stampingStatus, "peer", peerStatus.String())
+	if chain.stampingStatus.Height < peerStatus.Height {
+		log.Warn("dont reach latest status, return", "chain", chain.stampingStatus, "peer", peerStatus.String())
 		return fmt.Errorf("donot reach latest status, chain:%s, peer:%s", chain.stampingStatus.String(), peerStatus.String())
 	}
 
-	if err := chain.fetchLatestBlock(peer); err != nil {
-
-	}
-	return nil
+	return chain.fetchLatestBlock(peer)
 }
 
 func (chain *StampingChain) fetchLatestBlock(p *peer) error {
@@ -1310,15 +1307,8 @@ func (chain *StampingChain) fetchLatestBlock(p *peer) error {
 	}
 
 	if !chain.eth.BlockChain().HasState(latest.Root) {
-		parentHeight := chain.stampingStatus.Height - 1
-		parent := chain.header(parentHeight)
-		if parent == nil {
-			panic(fmt.Sprintf("header not exist, height:%d", parentHeight))
-			return fmt.Errorf("header not exist, height:%d", parentHeight)
-		}
-
-		if err := chain.downloader.FetchNodeData(parent.Root); err != nil {
-			log.Error("fetch state failed", "height", parentHeight, "err", err)
+		if err := chain.downloader.FetchNodeData(latest.Root); err != nil {
+			log.Error("fetch state failed", "height", latest.NumberU64(), "err", err)
 			return err
 		}
 	}
@@ -1333,16 +1323,15 @@ func (chain *StampingChain) fetchLatestBlock(p *peer) error {
 
 func (chain *StampingChain) commitPivotBlock(block *types.Block, receipts types.Receipts) error {
 	if err := chain.eth.BlockChain().InsertBlockAndReceipt(block, receipts); err != nil {
-		log.Error("commitPivotBlock insert block and receipt failed", "height", block.NumberU64())
+		log.Error("insert block and receipt failed", "height", block.NumberU64(), "err", err)
 		return err
 	}
 
 	if err := chain.eth.BlockChain().FastSyncCommitHead(block.Hash()); err != nil {
-		log.Error("commitPivotBlock update currentBlock failed", "height", block.NumberU64())
+		log.Error("update currentBlock failed", "height", block.NumberU64(), "err", err)
 		return err
 	}
 
-	//func (bc *BlockChain) PostChainEvents(events []interface{}, logs []*types.Log) {
 	events := make([]interface{}, 0, 1)
 	events = append(events, core.ChainHeadEvent{Block: block})
 	chain.eth.BlockChain().PostChainEvents(events, nil)

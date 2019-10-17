@@ -1790,6 +1790,11 @@ func (d *Downloader) requestTTL() time.Duration {
 }
 
 func (d *Downloader) FetchNodeData(root common.Hash) error {
+	d.cancelLock.Lock()
+	d.cancelCh = make(chan struct{})
+	d.cancelLock.Unlock()
+	defer d.Cancel()
+
 	stateSync := d.syncState(root)
 	defer stateSync.Cancel()
 	go func() {

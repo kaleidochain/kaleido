@@ -218,7 +218,7 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		return nil, err
 	}
 
-	eth.scchain = leap.NewChain(eth, eth.chainConfig, eth.engine, config.NetworkId)
+	eth.scchain = leap.NewChain(eth, eth.chainConfig, eth.engine, config.NetworkId, eth.protocolManager.GetDownloader())
 
 	eth.APIBackend = &EthAPIBackend{eth, nil}
 	gpoParams := config.GPO

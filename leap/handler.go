@@ -219,7 +219,7 @@ func (pm *ProtocolManager) handleLoop(p *peer) error {
 		if err := msg.Decode(&block); err != nil {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
-		p.Log().Debug("recv block", "block", block.Block.Hash(), "receipt", len(block.Receipts))
+		p.Log().Debug("recv block", "height", block.Block.NumberU64(), "block", block.Block.Hash(), "receipt", len(block.Receipts))
 		p.DeliverBlock(p.blockChan, &block)
 
 	default:
