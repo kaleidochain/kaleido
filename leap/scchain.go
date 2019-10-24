@@ -1268,7 +1268,7 @@ func (chain *StampingChain) sync(peer *peer) error {
 	}
 
 	// H+1 - peer.currentHeight
-	for begin, end := chain.stampingStatus.Height+1, chain.stampingStatus.Height+chain.config.Stamping.B; chain.stampingStatus.Height < peerStatus.Height; {
+	for begin, end := chain.stampingStatus.Candidate+1, chain.stampingStatus.Candidate+chain.config.Stamping.B; chain.stampingStatus.Height < peerStatus.Height; {
 		//fmt.Printf("process begin:[%d, %d]\n", begin, end)
 		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
 		if err != nil {

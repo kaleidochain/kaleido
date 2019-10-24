@@ -83,9 +83,11 @@ func (b *Generator) AddBloom(index uint, bloom types.Bloom) error {
 // Bitset returns the bit vector belonging to the given bit index after all
 // blooms have been added.
 func (b *Generator) Bitset(idx uint) ([]byte, error) {
-	if b.nextSec != b.sections {
-		return nil, errors.New("bloom not fully generated yet")
-	}
+	/*
+		if b.nextSec != b.sections {
+			return nil, errors.New("bloom not fully generated yet")
+		}
+	*/
 	if idx >= types.BloomBitLength {
 		return nil, errBloomBitOutOfBounds
 	}

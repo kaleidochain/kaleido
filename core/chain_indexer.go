@@ -392,13 +392,21 @@ func (c *ChainIndexer) processSection(section uint64, lastHead common.Hash) (com
 	for number := section * c.sectionSize; number < (section+1)*c.sectionSize; number++ {
 		hash := rawdb.ReadCanonicalHash(c.chainDb, number)
 		if hash == (common.Hash{}) {
-			return common.Hash{}, fmt.Errorf("canonical block #%d unknown", number)
+			//TODO: finish at next update('stage 2').
+			continue
+			//return common.Hash{}, fmt.Errorf("canonical block #%d unknown", number)
 		}
+
+		if deleted, err := rawdb.HasDeleteHeaderTag(c.chainDb, number); err != nil {
+			c.log.Error("read HasDeleteHeaderTag failed", "height", number, "err", err)
+			return common.Hash{}, err
+		} else if deleted {
+			continue
+		}
+
 		header := rawdb.ReadHeader(c.chainDb, hash, number)
 		if header == nil {
 			return common.Hash{}, fmt.Errorf("block #%d [%x…] not found", number, hash[:4])
-		} else if header.ParentHash != lastHead {
-			return common.Hash{}, fmt.Errorf("chain reorged during section processing")
 		}
 		if err := c.backend.Process(c.ctx, header); err != nil {
 			return common.Hash{}, err
