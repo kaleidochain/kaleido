@@ -105,8 +105,15 @@ type ProposalBlockData struct {
 }
 
 func NewProposalBlockDataFromProposalStorage(leader *types.ProposalStorage, block *types.Block) *ProposalBlockData {
+	// remove Certificate from header
+	headerNoCert := block.Header()
+	headerNoCert.Certificate = new(types.Certificate)
+
+	headerNoCert.Certificate.SetSeedProof(leader.SeedProof[:])
+	headerNoCert.Certificate.SetProposer(leader.Credential.Address)
+
 	return &ProposalBlockData{
-		Block:      block,
+		Block:      block.WithSeal(headerNoCert),
 		ESignValue: leader.ESignValue,
 		Credential: types.NewCredentialFromCredentialStorage(&leader.Credential, block.NumberU64(), leader.Round, types.RoundStep1Proposal),
 	}

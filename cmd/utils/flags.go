@@ -174,8 +174,8 @@ var (
 	}
 	GCModeFlag = cli.StringFlag{
 		Name:  "gcmode",
-		Usage: `Blockchain garbage collection mode ("full", "archive")`,
-		Value: "full",
+		Usage: `Blockchain garbage collection mode (only support "archive")`,
+		Value: "archive",
 	}
 	LightServFlag = cli.IntFlag{
 		Name:  "lightserv",
@@ -1263,8 +1263,8 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	}
 	cfg.DatabaseHandles = makeDatabaseHandles()
 
-	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
-		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
+	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != "archive" {
+		Fatalf("--%s must be 'archive'", GCModeFlag.Name)
 	}
 	cfg.NoPruning = ctx.GlobalString(GCModeFlag.Name) == "archive"
 
@@ -1532,8 +1532,8 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chai
 			}, nil, false)
 		}
 	}
-	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
-		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
+	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != "archive" {
+		Fatalf("--%s must be 'archive'", GCModeFlag.Name)
 	}
 	cache := &core.CacheConfig{
 		Disabled:       ctx.GlobalString(GCModeFlag.Name) == "archive",
