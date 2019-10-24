@@ -440,33 +440,25 @@ func (chain *StampingChain) trim(start, end uint64) int {
 	return count
 }
 
-func (chain *StampingChain) print() {
+func (chain *StampingChain) print() string {
 	if chain.stampingStatus.Height <= chain.config.Stamping.B {
-		return
+		return ""
 	}
-	count := chain.printRange(1, chain.stampingStatus.Height+1)
+	result, count := chain.printRange(1, chain.stampingStatus.Height+1)
 
-	fmt.Printf("Status: Fz=%d, Proof=%d, Candidate=%d\n", chain.stampingStatus.Fz, chain.stampingStatus.Proof, chain.stampingStatus.Candidate)
-	fmt.Printf("MaxHeight=%d, realLength=%d, percent=%.2f%%\n", chain.stampingStatus.Height, count, float64(count*10000/chain.stampingStatus.Height)/100)
+	result += fmt.Sprintf("Status: Fz=%d, Proof=%d, Candidate=%d\n", chain.stampingStatus.Fz, chain.stampingStatus.Proof, chain.stampingStatus.Candidate)
+	result += fmt.Sprintf("MaxHeight=%d, realLength=%d, percent=%.2f%%\n", chain.stampingStatus.Height, count, float64(count*10000/chain.stampingStatus.Height)/100)
+
+	//fmt.Printf(result)
+
+	return result
 }
 
-func (chain *StampingChain) Print() {
+func (chain *StampingChain) Print() string {
 	chain.mutexChain.RLock()
 	defer chain.mutexChain.RUnlock()
 
-	chain.print()
-}
-
-func (chain *StampingChain) PrintFrozenBreadcrumbs() {
-	chain.mutexChain.RLock()
-	defer chain.mutexChain.RUnlock()
-
-	begin := chain.config.Stamping.HeightB() + 1
-	end := chain.stampingStatus.Fz + 1
-	count := chain.printRange(begin, end)
-
-	fmt.Printf("Status: Fz=%d, Proof=%d, Candidate=%d\n", chain.stampingStatus.Fz, chain.stampingStatus.Proof, chain.stampingStatus.Candidate)
-	fmt.Printf("RangeLength=%d, realLength=%d, percent=%.2f%%\n", end-begin, count, float64(count*10000/(end-begin))/100)
+	return chain.print()
 }
 
 func (chain *StampingChain) PrintProperty() {
@@ -513,7 +505,8 @@ func (chain *StampingChain) PrintProperty() {
 		countBreadcrumb, countTail, sumTailLength, avgTailLen, countForward, sumForwardLength, avgForwardLen)
 }
 
-func (chain *StampingChain) printRange(begin, end uint64) uint64 {
+func (chain *StampingChain) printRange(begin, end uint64) (string, uint64) {
+	var result string
 	const perLine = 8
 
 	lastPrinted := uint64(0)
@@ -532,17 +525,17 @@ func (chain *StampingChain) printRange(begin, end uint64) uint64 {
 		hasParent := lastPrinted == height-1
 		lastPrinted = height
 
-		fmt.Printf("%s", chain.formatHeader(header, sc, hasParent))
+		result += fmt.Sprintf("%s", chain.formatHeader(header, sc, hasParent))
 		if count++; count%perLine == 0 {
-			fmt.Println()
+			result += fmt.Sprintln()
 		}
 	}
 
 	if count%perLine != 0 {
-		fmt.Println()
+		result += fmt.Sprintln()
 	}
 
-	return count
+	return result, count
 }
 
 func (chain *StampingChain) formatHeader(header *types.Header, sc *types.StampingCertificate, hasParent bool) string {

@@ -20,6 +20,8 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/kaleidochain/kaleido/leap"
+
 	"github.com/kaleidochain/kaleido/accounts"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/math"
@@ -195,6 +197,10 @@ func (b *EthAPIBackend) SubscribeNewTxsEvent(ch chan<- core.NewTxsEvent) event.S
 
 func (b *EthAPIBackend) Downloader() *downloader.Downloader {
 	return b.eth.Downloader()
+}
+
+func (b *EthAPIBackend) StampingChain() *leap.StampingChain {
+	return b.eth.StampingChain()
 }
 
 func (b *EthAPIBackend) ProtocolVersion() int {

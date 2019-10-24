@@ -24,11 +24,11 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/rlp"
 	kaleido "github.com/kaleidochain/kaleido"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/hexutil"
 	"github.com/kaleidochain/kaleido/core/types"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/rpc"
 )
 
@@ -531,4 +531,11 @@ func toCallArg(msg kaleido.CallMsg) interface{} {
 		arg["gasPrice"] = (*hexutil.Big)(msg.GasPrice)
 	}
 	return arg
+}
+
+// Print StampingChain
+func (ec *Client) PrintLeap(ctx context.Context) (string, error) {
+	var result string
+	err := ec.c.CallContext(ctx, &result, "eth_printLeap")
+	return result, err
 }
