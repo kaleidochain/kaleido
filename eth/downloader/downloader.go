@@ -349,63 +349,66 @@ func (d *Downloader) Synchronise(id string, head common.Hash, td *big.Int, mode 
 // it will use the best peer possible and synchronize if its TD is higher than our own. If any of the
 // checks fail an error will be returned. This method is synchronous
 func (d *Downloader) synchronise(id string, hash common.Hash, td *big.Int, mode SyncMode) error {
-	// Mock out the synchronisation if testing
-	if d.synchroniseMock != nil {
-		return d.synchroniseMock(id, hash)
-	}
-	// Make sure only one goroutine is ever allowed past this point at once
-	if !atomic.CompareAndSwapInt32(&d.synchronising, 0, 1) {
-		return errBusy
-	}
-	defer atomic.StoreInt32(&d.synchronising, 0)
-
-	// Post a user notification of the sync (only once per session)
-	if atomic.CompareAndSwapInt32(&d.notified, 0, 1) {
-		log.Info("Block synchronisation started")
-	}
-	// Reset the queue, peer set and wake channels to clean any internal leftover state
-	d.queue.Reset()
-	d.peers.Reset()
-
-	for _, ch := range []chan bool{d.bodyWakeCh, d.receiptWakeCh} {
-		select {
-		case <-ch:
-		default:
+	return nil
+	/*
+		// Mock out the synchronisation if testing
+		if d.synchroniseMock != nil {
+			return d.synchroniseMock(id, hash)
 		}
-	}
-	for _, ch := range []chan dataPack{d.headerCh, d.bodyCh, d.receiptCh} {
-		for empty := false; !empty; {
+		// Make sure only one goroutine is ever allowed past this point at once
+		if !atomic.CompareAndSwapInt32(&d.synchronising, 0, 1) {
+			return errBusy
+		}
+		defer atomic.StoreInt32(&d.synchronising, 0)
+
+		// Post a user notification of the sync (only once per session)
+		if atomic.CompareAndSwapInt32(&d.notified, 0, 1) {
+			log.Info("Block synchronisation started")
+		}
+		// Reset the queue, peer set and wake channels to clean any internal leftover state
+		d.queue.Reset()
+		d.peers.Reset()
+
+		for _, ch := range []chan bool{d.bodyWakeCh, d.receiptWakeCh} {
 			select {
 			case <-ch:
+			default:
+			}
+		}
+		for _, ch := range []chan dataPack{d.headerCh, d.bodyCh, d.receiptCh} {
+			for empty := false; !empty; {
+				select {
+				case <-ch:
+				default:
+					empty = true
+				}
+			}
+		}
+		for empty := false; !empty; {
+			select {
+			case <-d.headerProcCh:
 			default:
 				empty = true
 			}
 		}
-	}
-	for empty := false; !empty; {
-		select {
-		case <-d.headerProcCh:
-		default:
-			empty = true
+		// Create cancel channel for aborting mid-flight and mark the master peer
+		d.cancelLock.Lock()
+		d.cancelCh = make(chan struct{})
+		d.cancelPeer = id
+		d.cancelLock.Unlock()
+
+		defer d.Cancel() // No matter what, we can't leave the cancel channel open
+
+		// Set the requested sync mode, unless it's forbidden
+		d.mode = mode
+
+		// Retrieve the origin peer and initiate the downloading process
+		p := d.peers.Peer(id)
+		if p == nil {
+			return errUnknownPeer
 		}
-	}
-	// Create cancel channel for aborting mid-flight and mark the master peer
-	d.cancelLock.Lock()
-	d.cancelCh = make(chan struct{})
-	d.cancelPeer = id
-	d.cancelLock.Unlock()
-
-	defer d.Cancel() // No matter what, we can't leave the cancel channel open
-
-	// Set the requested sync mode, unless it's forbidden
-	d.mode = mode
-
-	// Retrieve the origin peer and initiate the downloading process
-	p := d.peers.Peer(id)
-	if p == nil {
-		return errUnknownPeer
-	}
-	return d.syncWithPeer(p, hash, td)
+		return d.syncWithPeer(p, hash, td)
+	*/
 }
 
 // syncWithPeer starts a block synchronization based on the hash chain from the
