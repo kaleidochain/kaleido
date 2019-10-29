@@ -215,6 +215,7 @@ type Context struct {
 
 	snappingChainHead chan core.ChainHeadEvent
 	getBlockReqCh     chan *getBlockReq
+	chainHeadCh       chan uint64
 
 	journal *VoteJournal
 	recover bool
@@ -237,11 +238,12 @@ func NewContext(eth Backend, broadcaster Broadcaster, config *params.ChainConfig
 		mkm:               NewMinerKeyManager(config.Algorand, algorandDataDir),
 		snappingChainHead: make(chan core.ChainHeadEvent),
 		getBlockReqCh:     make(chan *getBlockReq),
+		chainHeadCh:       make(chan uint64, chainHeadChanSize),
 
 		recover: true,
 	}
 
-	context.mkm.StartUpdateRoutine(eth.BlockChain())
+	context.mkm.StartUpdateRoutine(context.chainHeadCh)
 
 	return context
 }
@@ -635,6 +637,7 @@ func (ctx *Context) stopRunning() {
 	ctx.hsMutex.Lock()
 	defer ctx.hsMutex.Unlock()
 
+	ctx.mkm.Stop()
 	close(ctx.quit)
 	ctx.wg.Wait()
 
@@ -887,14 +890,12 @@ func (ctx *Context) receiveRoutine() {
 					log.Trace("StateMachine context receive routine snapping exit", "HRS", ctx.HRS())
 					return
 				case <-ctx.quit:
-					log.Trace("StateMachine context receive routine snapping exit", "HRS", ctx.HRS())
+					log.Trace("StateMachine context receive routine exit", "HRS", ctx.HRS())
 					return
 				}
 
 				parentHeight := currentBlock.NumberU64()
 				ctx.resetAndOpenRecoverFile(parentHeight + 1)
-
-				// TODO: Minerkey should be deleted by notification from here.
 
 				vote := ctx.makeStampingVote(currentBlock)
 				ctx.eth.BlockChain().PostChainEvents([]interface{}{core.ChainStampingEvent{Vote: vote}}, nil)
@@ -903,6 +904,14 @@ func (ctx *Context) receiveRoutine() {
 					"number", currentBlock.NumberU64(),
 					"HRS", ctx.HRS(),
 					"vote", vote)
+
+				// TODO: Minerkey should be deleted by notification from here.
+				select {
+				case ctx.chainHeadCh <- parentHeight:
+				case <-ctx.quit:
+					log.Trace("StateMachine context receive routine exit", "HRS", ctx.HRS())
+					return
+				}
 
 				ctx.gotoState(&StateNewHeight{chainHeadBlock: currentBlock})
 			}
@@ -1741,8 +1750,8 @@ func (ctx *Context) Stake() uint64 {
 
 func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
 	height := block.NumberU64()
-	if height <= ctx.config.Stamping.B {
-		log.Warn("Height < B", "Height", height, "config.B", ctx.config.Stamping.B)
+	if height <= ctx.config.Stamping.HeightB() {
+		log.Warn("Height < B", "Height", height, "config.HeightB", ctx.config.Stamping.HeightB())
 		return nil
 	}
 
