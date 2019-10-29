@@ -104,8 +104,10 @@ func (chain *StampingChain) processStatusAndChainConsistence() {
 	status := chain.eth.BlockChain().GetStampingStatus()
 
 	if status == nil {
-		if chain.eth.BlockChain().CurrentBlock().NumberU64() > chain.config.Stamping.HeightB() {
+		if chain.eth.BlockChain().CurrentBlock().NumberU64() < chain.config.Stamping.HeightB() {
 			log.Error("cant read stamping status, check stamping chain status")
+			panic(fmt.Sprintf("HeightB > CurrentHeight, HeightB:%d, CurrentHeight:%d\n",
+				chain.config.Stamping.HeightB(), chain.eth.BlockChain().CurrentBlock().NumberU64()))
 		}
 		chain.stampingStatus = types.StampingStatus{
 			Height:    chain.eth.BlockChain().CurrentBlock().NumberU64(),
