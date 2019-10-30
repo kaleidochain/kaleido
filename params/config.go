@@ -91,8 +91,8 @@ var (
 		},
 		Stamping: &StampingConfig{
 			B:          10000,
-			BaseHeight: 0,
-			BaseHash:   common.Hash{},
+			BaseHeight: 2943000,
+			BaseHash:   common.HexToHash("0x7fad6c2ed34c7a7d7154cae0aa7491332a7012a52e25b7bd492112e929d5154f"),
 		},
 	}
 
