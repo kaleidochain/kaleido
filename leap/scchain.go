@@ -104,10 +104,10 @@ func (chain *StampingChain) processStatusAndChainConsistence() {
 	status := chain.eth.BlockChain().GetStampingStatus()
 
 	if status == nil {
-		if chain.eth.BlockChain().CurrentBlock().NumberU64() < chain.config.Stamping.HeightB() {
+		if chain.eth.BlockChain().CurrentBlock().NumberU64() < chain.config.Stamping.BaseHeight {
 			log.Error("cant read stamping status, check stamping chain status")
-			panic(fmt.Sprintf("HeightB > CurrentHeight, HeightB:%d, CurrentHeight:%d\n",
-				chain.config.Stamping.HeightB(), chain.eth.BlockChain().CurrentBlock().NumberU64()))
+			panic(fmt.Sprintf("BaseHeight > CurrentHeight, BaseHeight:%d, CurrentHeight:%d\n",
+				chain.config.Stamping.BaseHeight, chain.eth.BlockChain().CurrentBlock().NumberU64()))
 		}
 		chain.stampingStatus = types.StampingStatus{
 			Height:    chain.eth.BlockChain().CurrentBlock().NumberU64(),
@@ -443,15 +443,13 @@ func (chain *StampingChain) trim(start, end uint64) int {
 }
 
 func (chain *StampingChain) print() string {
-	if chain.stampingStatus.Height <= chain.config.Stamping.B {
+	if chain.stampingStatus.Height <= chain.config.Stamping.HeightB() {
 		return ""
 	}
-	result, count := chain.printRange(1, chain.stampingStatus.Height+1)
+	result, count := chain.printRange(chain.config.Stamping.HeightB(), chain.stampingStatus.Height+1)
 
 	result += fmt.Sprintf("Status: Fz=%d, Proof=%d, Candidate=%d\n", chain.stampingStatus.Fz, chain.stampingStatus.Proof, chain.stampingStatus.Candidate)
 	result += fmt.Sprintf("MaxHeight=%d, realLength=%d, percent=%.2f%%\n", chain.stampingStatus.Height, count, float64(count*10000/chain.stampingStatus.Height)/100)
-
-	//fmt.Printf(result)
 
 	return result
 }
@@ -1004,6 +1002,9 @@ func (chain *StampingChain) checkEnoughVotesAndAddToSCChain() (err error) {
 		})
 
 		for _, height := range enoughHeights {
+			if height <= chain.stampingStatus.Candidate {
+				continue
+			}
 			//
 			var scVotes []*types.StampingVote
 			votes := chain.buildingStampingVoteWindow[height]
@@ -1027,7 +1028,7 @@ func (chain *StampingChain) checkEnoughVotesAndAddToSCChain() (err error) {
 		}
 
 		for height := range chain.buildingStampingVoteWindow {
-			if height <= maxEnoughVotesHeight {
+			if height <= maxEnoughVotesHeight || height <= chain.stampingStatus.Candidate {
 				delete(chain.buildingStampingVoteWindow, height)
 			}
 		}
@@ -1072,7 +1073,7 @@ func (chain *StampingChain) checkBelowCEnoughVotesAndCount() {
 
 	for height := range chain.belowStampingVoteWindow {
 		if height <= maxEnoughVotesHeight || ((height > belowCHeight) && (height <= chain.stampingStatus.Candidate-100)) {
-			delete(chain.buildingStampingVoteWindow, height)
+			delete(chain.belowStampingVoteWindow, height)
 		}
 	}
 
