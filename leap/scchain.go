@@ -221,6 +221,10 @@ func (chain *StampingChain) writeBackwardHeader(header *types.Header) error {
 	return chain.eth.BlockChain().InsertBackwardHeader([]*types.Header{header})
 }
 
+func (chain *StampingChain) writeNonCertificateHeader(header *types.Header) error {
+	return chain.eth.BlockChain().WriteNonCertificateHeader(header)
+}
+
 func (chain *StampingChain) addForwardBlock(header *types.Header) error {
 	height := header.NumberU64()
 	if height <= chain.stampingStatus.Height {
@@ -395,8 +399,13 @@ func (chain *StampingChain) AddStampingCertificate(sc *types.StampingCertificate
 func (chain *StampingChain) deleteFC(start, end uint64) int {
 	count := 0
 	for i := start; i <= end; i++ {
-		// TODO: delete header.certificate
-		//delete(chain.fcChain, i)
+		header := chain.header(i)
+		if header != nil {
+			headerNoCert := types.CopyNonCertHeader(header)
+			if err := chain.writeNonCertificateHeader(headerNoCert); err != nil {
+				log.Error("write non certificate header failed", "height", i, "err", err)
+			}
+		}
 	}
 
 	return count
@@ -671,7 +680,7 @@ func (chain *StampingChain) getNextBreadcrumb(begin, end uint64, status types.St
 					break
 				}
 
-				bc.Tail = append(bc.Tail, header)
+				bc.Tail = append(bc.Tail, types.CopyNonCertHeader(header))
 			}
 
 			return bc, nil
@@ -1231,7 +1240,7 @@ func (chain *StampingChain) syncWithPeer() error {
 
 	err := chain.sync(peer)
 	log.Trace("end sync", "peer", peer.ID().String(), "err", err)
-	chain.print()
+	//chain.print()
 	return err
 }
 

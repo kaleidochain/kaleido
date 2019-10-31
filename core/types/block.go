@@ -133,6 +133,14 @@ func (h *Header) SeedBytes() []byte {
 	return h.MixDigest[:]
 }
 
+func (h *Header) SeedProof() ed25519.VrfProof {
+	return h.Certificate.SeedProof()
+}
+
+func (h *Header) Proposer() common.Address {
+	return h.Certificate.Proposal.Credential.Address
+}
+
 // Hash returns the block hash of the header, which is simply the keccak256 hash of its
 // RLP encoding.
 func (h *Header) Hash() common.Hash {
@@ -284,6 +292,16 @@ func NewBlockWithHeader(header *Header) *Block {
 	return &Block{header: CopyHeader(header)}
 }
 
+func CopyNonCertHeader(h *Header) *Header {
+	headerNoCert := CopyHeader(h)
+	headerNoCert.Certificate = new(Certificate)
+
+	seedProof := h.SeedProof()
+	headerNoCert.Certificate.SetSeedProof(seedProof[:])
+	headerNoCert.Certificate.SetProposer(h.Proposer())
+	return headerNoCert
+}
+
 // CopyHeader creates a deep copy of a block header to prevent side effects from
 // modifying a header variable.
 func CopyHeader(h *Header) *Header {
@@ -379,7 +397,7 @@ func (b *Block) AlgorandEmptyValue() common.Hash { return b.header.AlgorandEmpty
 
 func (b *Block) Certificate() *Certificate      { return b.header.Certificate }
 func (b *Block) Seed() ed25519.VrfOutput256     { return b.header.Seed() }
-func (b *Block) SeedProof() ed25519.VrfProof    { return b.header.Certificate.SeedProof() }
+func (b *Block) SeedProof() ed25519.VrfProof    { return b.header.SeedProof() }
 func (b *Block) TotalBalanceOfMiners() *big.Int { return b.header.TotalBalanceOfMiners }
 
 // Size returns the true RLP encoded storage size of the block, either by encoding

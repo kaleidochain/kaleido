@@ -1785,6 +1785,22 @@ func (bc *BlockChain) insertHeaderFunc(headers []*types.Header, whFunc WhCallbac
 	return bc.hc.InsertHeaderChain(headers, whFunc, start)
 }
 
+func (bc *BlockChain) WriteNonCertificateHeader(header *types.Header) error {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	{
+		bc.mu.Lock()
+		defer bc.mu.Unlock()
+
+		return bc.hc.WriteNonCertificateHeader(header)
+	}
+}
+
 // writeHeader writes a header into the local chain, given that its parent is
 // already known. If the total difficulty of the newly inserted header becomes
 // greater than the current known TD, the canonical chain is re-routed.

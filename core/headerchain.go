@@ -240,6 +240,14 @@ func (hc *HeaderChain) WriteBackwardHeader(header *types.Header) (err error) {
 	return
 }
 
+func (hc *HeaderChain) WriteNonCertificateHeader(header *types.Header) error {
+	rawdb.WriteHeader(hc.chainDb, header)
+
+	hc.headerCache.Add(header.Hash(), header)
+
+	return nil
+}
+
 // WhCallback is a callback function for inserting individual headers.
 // A callback is used for two reasons: first, in a LightChain, status should be
 // processed and light chain events sent, while in a BlockChain this is not
