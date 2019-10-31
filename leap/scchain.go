@@ -29,7 +29,7 @@ var (
 const (
 	chainStampingChanSize     = 10
 	checkNewSCInterval        = 6 * time.Second
-	stampingVoteCandidateTerm = 36
+	stampingVoteCandidateTerm = 60 * 10
 	gossipMaxHeightDiff       = 20
 	belowCHeight              = 100
 
