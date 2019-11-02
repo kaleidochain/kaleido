@@ -178,13 +178,13 @@ func (p *peer) SendStampingVote(vote *types.StampingVote) error {
 	defer p.mutex.Unlock()
 
 	if vote.Height <= p.scStatus.Candidate {
-		p.Log().Trace("SendVote too low", "vote", vote)
-		return fmt.Errorf(fmt.Sprintf("SendVote too low, peer status:%s, vote:%v", p.statusString(), vote))
+		p.Log().Trace("SendStampingVote too low", "vote", vote)
+		return fmt.Errorf(fmt.Sprintf("SendStampingVote too low, peer status:%s, vote:%v", p.statusString(), vote))
 	}
 
 	if p.counter.HasVote(vote) {
-		p.Log().Trace("SendVote has vote", "vote", vote, "counter", p.counter.Print(vote.Height))
-		return fmt.Errorf(fmt.Sprintf("SendVote has vote, peer status:%s, vote:%v", p.statusString(), vote))
+		p.Log().Trace("SendStampingVote has vote", "vote", vote, "counter", p.counter.Print(vote.Height))
+		return fmt.Errorf(fmt.Sprintf("SendStampingVote has vote, peer status:%s, vote:%v", p.statusString(), vote))
 	}
 
 	p.sendVoteAndSetHasVoteNoLock(vote)
@@ -194,12 +194,12 @@ func (p *peer) SendStampingVote(vote *types.StampingVote) error {
 func (p *peer) sendVoteAndSetHasVoteNoLock(vote *types.StampingVote) {
 	err := p2p.Send(p.rw, StampingVoteMsg, vote)
 	if err != nil {
-		p.Log().Debug("SendVote fail", "vote", vote, "err", err)
+		p.Log().Debug("SendStampingVote fail", "vote", vote, "err", err)
 		return
 	}
 
 	p.counter.SetHasVote(ToHasSCVoteData(vote))
-	p.Log().Trace("SendVote OK", "vote", vote)
+	p.Log().Trace("SendStampingVote OK", "vote", vote)
 }
 
 func (p *peer) SetHasVote(data *HasSCVoteData) {
@@ -220,7 +220,7 @@ func (p *peer) SendStatus(status *types.StampingStatus) {
 
 	err := p2p.Send(p.rw, StampingStatusMsg, status)
 	if err != nil {
-		p.Log().Debug("SendVote fail", "status", status, "err", err)
+		p.Log().Debug("SendStampingVote fail", "status", status, "err", err)
 		return
 	}
 }

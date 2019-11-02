@@ -927,7 +927,7 @@ func (chain *StampingChain) handleStampingEvent(stampingEvent core.ChainStamping
 
 	log.Trace("handleStampingEvent done", "status", chain.stampingStatus, "vote", stampingEvent.Vote.String())
 
-	//chain.pm.Broadcast(StampingVoteMsg, stampingEvent.Vote)
+	chain.pm.Broadcast(StampingVoteMsg, stampingEvent.Vote)
 }
 
 func (chain *StampingChain) handleMsg(msg message) {
@@ -1106,8 +1106,11 @@ func (chain *StampingChain) addStampingVoteAndCount(vote *types.StampingVote, th
 
 	added, enough, err = chain.processStampingVoteWindow(vote, chain.buildingStampingVoteWindow, threshold)
 
-	log.Info("addStampingVoteAndCount OK", "Added", added, "Enough", enough,
-		"Weight", fmt.Sprintf("(%d/%d)", chain.buildingStampingVoteWindow[vote.Height].weight, threshold), "vote", vote)
+	if added || enough {
+		log.Info("addStampingVoteAndCount OK", "Added", added, "Enough", enough,
+			"Weight", fmt.Sprintf("(%d/%d)", chain.buildingStampingVoteWindow[vote.Height].weight, threshold), "vote", vote)
+	}
+
 	return
 }
 
