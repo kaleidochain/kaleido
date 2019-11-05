@@ -28,6 +28,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kaleidochain/kaleido/consensus/algorand/core"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -1093,9 +1095,11 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 				"currentBlock", currentBlock.Hash().TerminalString())
 			credential := block.Certificate().Proposal.Credential
 			currentCredential := currentBlock.Certificate().Proposal.Credential
-			if credential.LessThan(&currentCredential) {
+			credentialWeight := core.GetSortitionWeight(bc.chainConfig.Algorand, bc, block.NumberU64(), credential.Proof, credential.Address)
+			currentCredentialWeight := core.GetSortitionWeight(bc.chainConfig.Algorand, bc, currentBlock.NumberU64(), currentCredential.Proof, currentCredential.Address)
+			if cmp := types.LessThanByProofInt(&credential.Proof, &currentCredential.Proof, credentialWeight, currentCredentialWeight); cmp < 0 {
 				reorg = true
-			} else if credential.EqualTo(&currentCredential) {
+			} else if cmp == 0 {
 				// 3. we choose the block with min hash
 				log.Warn("Fork detected! try to choose min block hash",
 					"height", block.NumberU64(),

@@ -26,16 +26,7 @@ import (
 	"github.com/kaleidochain/kaleido/crypto/ed25519"
 )
 
-func Choose(hash ed25519.VrfOutput256, ownedWeight, expectedThreshold, expectedWeight, totalWeight uint64) (j uint64) {
+func Choose(hash ed25519.VrfOutput256, ownedWeight, expectedThreshold, expectedWeight, totalWeight uint64) uint64 {
 	chash := unsafe.Pointer(&hash[0])
-	if expectedThreshold == 1 {
-		r := C.SortitionIsZeroByStandardSearch(chash, C.ulonglong(ownedWeight), C.ulonglong(expectedWeight), C.ulonglong(totalWeight))
-		if C.int(r) == 0 {
-			j = 1
-		}
-	} else {
-		r := C.SortitionByBinarySearch(chash, C.ulonglong(ownedWeight), C.ulonglong(expectedWeight), C.ulonglong(totalWeight))
-		j = uint64(r)
-	}
-	return
+	return uint64(C.SortitionByBinarySearch(chash, C.ulonglong(ownedWeight), C.ulonglong(expectedWeight), C.ulonglong(totalWeight)))
 }

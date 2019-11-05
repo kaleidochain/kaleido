@@ -19,6 +19,7 @@ package types
 import (
 	"bytes"
 	"crypto/sha512"
+	"encoding/binary"
 	"fmt"
 	"unsafe"
 
@@ -77,17 +78,36 @@ func VoteTypeOfStep(step uint32) uint32 {
 	return BadStep
 }
 
-func LessThanByProof(a, b *ed25519.VrfProof) bool {
-	hashA, okA := ed25519.VrfProofToHash256(a)
-	hashB, okB := ed25519.VrfProofToHash256(b)
+func LessThanByProof(proofA, proofB *ed25519.VrfProof, jA, jB uint64) bool {
+	return LessThanByProofInt(proofA, proofB, jA, jB) < 0
+}
+
+func LessThanByProofInt(proofA, proofB *ed25519.VrfProof, jA, jB uint64) int {
+	hashA, okA := ed25519.VrfProofToHash256(proofA)
+	hashB, okB := ed25519.VrfProofToHash256(proofB)
 	if !okA || !okB {
-		panic(fmt.Sprintf("bad vrf proof: %x, %x", a, b))
+		panic(fmt.Sprintf("bad vrf proof: %x, %x", proofA, proofB))
 	}
 
-	randA := sha512.Sum512_256(hashA[:])
-	randB := sha512.Sum512_256(hashB[:])
+	minA := minRandHash(hashA, jA)
+	minB := minRandHash(hashB, jB)
 
-	return bytes.Compare(randA[:], randB[:]) < 0
+	return bytes.Compare(minA, minB)
+}
+
+func minRandHash(hash ed25519.VrfOutput256, j uint64) []byte {
+	min := sha512.Sum512_256(hash[:])
+	for i := uint64(2); i <= j; i++ {
+		b := new(bytes.Buffer)
+		b.Write(hash[:])
+		binary.Write(b, binary.BigEndian, i)
+		hash512 := sha512.Sum512_256(b.Bytes())
+
+		if bytes.Compare(hash512[:], min[:]) < 0 {
+			min = hash512
+		}
+	}
+	return min[:]
 }
 
 func EqualToByProof(a, b *ed25519.VrfProof) bool {
@@ -104,14 +124,6 @@ func EqualToByProof(a, b *ed25519.VrfProof) bool {
 type CredentialStorage struct {
 	Address common.Address   `json:"address" gencodec:"required"`
 	Proof   ed25519.VrfProof `json:"proof" gencodec:"required"`
-}
-
-func (c CredentialStorage) EqualTo(other *CredentialStorage) bool {
-	return EqualToByProof(&c.Proof, &other.Proof)
-}
-
-func (c *CredentialStorage) LessThan(other *CredentialStorage) bool {
-	return LessThanByProof(&c.Proof, &other.Proof)
 }
 
 func (c *CredentialStorage) String() string {
@@ -161,6 +173,10 @@ func (c *Certificate) Proposer() common.Address {
 
 func (c *Certificate) SetProposer(addr common.Address) {
 	c.Proposal.Credential.Address = addr
+}
+
+func (c *Certificate) Proof() ed25519.VrfProof {
+	return c.Proposal.Credential.Proof
 }
 
 func (c *Certificate) SeedProof() ed25519.VrfProof {

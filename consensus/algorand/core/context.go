@@ -22,10 +22,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/kaleidochain/kaleido/consensus/algorand/core/sortition"
 
 	"github.com/kaleidochain/kaleido/crypto/ed25519"
 
@@ -1305,8 +1308,10 @@ func (ctx *Context) resetParentProposalBlockData() {
 		return
 	}
 
+	sortitionWeight := GetSortitionWeightByState(ctx.config.Algorand, ctx.parentStatedb, ctx.parent.Header(), ctx.header)
+
 	certificate := ctx.parent.Certificate()
-	ctx.parentProposalBlockData = NewProposalBlockDataFromProposalStorage(&certificate.Proposal, ctx.parent)
+	ctx.parentProposalBlockData = NewProposalBlockDataFromProposalStorage(&certificate.Proposal, ctx.parent, sortitionWeight)
 }
 
 func (ctx *Context) GetParentProposalBlockData(height uint64) *ProposalBlockData {
@@ -1347,7 +1352,7 @@ func (ctx *Context) sortition() (hash ed25519.VrfOutput256, proof ed25519.VrfPro
 // 这里有个问题，如果value对应的block找不到怎么办？是不发呢，还是只发ProposalValue
 // 这种情况在前一轮的block没收有可能收齐该block的next-vote，从而以这个值进入下一轮时会出现
 // 也许应该作废，使用自己的proposalBlock来发
-func (ctx *Context) sendProposal(value common.Hash, sortHash ed25519.VrfOutput256, proof ed25519.VrfProof) {
+func (ctx *Context) sendProposal(value common.Hash, sortHash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64) {
 	if ctx.recover {
 		log.Info("recover: sendProposal return", "HRS", ctx.HRS())
 		return
@@ -1369,6 +1374,7 @@ func (ctx *Context) sendProposal(value common.Hash, sortHash ed25519.VrfOutput25
 			Round:   ctx.Round,
 			Step:    types.RoundStep1Proposal,
 			Proof:   proof,
+			Weight:  j,
 		},
 	}
 
@@ -1727,4 +1733,35 @@ func (ctx *Context) Stake() uint64 {
 	weight, _ := GetWeight(ctx.config.Algorand, ctx.currentMiner, stateDb, currentBlock.TotalBalanceOfMiners(), hashHalf)
 
 	return weight
+}
+
+func GetSortitionWeight(config *params.AlgorandConfig, bc *core.BlockChain, height uint64, proof ed25519.VrfProof, miner common.Address) (j uint64) {
+	parentHeader := bc.GetHeaderByNumber(height - 1)
+	stateDb, err := bc.StateAt(parentHeader.Root)
+	if err != nil {
+		log.Error("Failed to get stateDb", "err", err)
+		return
+	}
+
+	j = getSortitionWeight(config, stateDb, height, proof, miner, parentHeader.TotalBalanceOfMiners)
+
+	return
+}
+
+func GetSortitionWeightByState(config *params.AlgorandConfig, parentStateDb *state.StateDB, parent, header *types.Header) (j uint64) {
+	return getSortitionWeight(config, parentStateDb, header.Number.Uint64(), header.Proof(), header.Proposer(), parent.TotalBalanceOfMiners)
+}
+
+func getSortitionWeight(config *params.AlgorandConfig, parentStateDb *state.StateDB, height uint64, proof ed25519.VrfProof, miner common.Address, totalBalanceOfMiners *big.Int) (j uint64) {
+	hash, ok := ed25519.VrfProofToHash256(&proof)
+	if !ok {
+		return 0
+	}
+
+	ownWeight, totalWeight := GetWeight(config, miner, parentStateDb, totalBalanceOfMiners, hash)
+
+	threshold, size := GetCommitteeNumber(height, types.RoundStep1Proposal)
+	j = sortition.Choose(hash, ownWeight, threshold, size, totalWeight)
+
+	return
 }

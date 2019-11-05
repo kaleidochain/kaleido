@@ -190,6 +190,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
 		p.UpdateHR(data.Height, data.Round)
+		data.Weight = core.GetSortitionWeight(pm.config.Algorand, pm.eth.BlockChain(), data.Height, data.Proof, data.Address)
 		p.SetHasProposalValue(data.ToHasProposalData())
 		pm.ctx.OnReceive(core.ProposalLeaderMsg, &data, p.String())
 
@@ -199,6 +200,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
 		p.UpdateHR(data.Height, data.Round)
+		data.Weight = core.GetSortitionWeight(pm.config.Algorand, pm.eth.BlockChain(), data.Height, data.Proof, data.Address)
 		p.SetHasProposalBlock(data.ToHasProposalData())
 		pm.ctx.OnReceive(core.ProposalBlockMsg, &data, p.String())
 
@@ -568,8 +570,11 @@ func (pm *ProtocolManager) getProposalBlockByHeight(height uint64) *core.Proposa
 		return nil
 	}
 
+	sortitionWeight := core.GetSortitionWeight(pm.config.Algorand, pm.eth.BlockChain(), height, block.Proof(), block.Proposer())
+
 	certificate := block.Certificate()
-	data := core.NewProposalBlockDataFromProposalStorage(&certificate.Proposal, block)
+	data := core.NewProposalBlockDataFromProposalStorage(&certificate.Proposal, block, sortitionWeight)
+
 	return data
 }
 

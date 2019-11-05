@@ -167,7 +167,7 @@ func VerifySignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature
 
 	err, choosedWeight := mv.VerifySortition(credential.Height, credential.Round, credential.Step, credential.Proof, parentSeed, stateDb, totalBalanceOfMiners)
 	if err != nil {
-		log.Warn("verify credential failed", "err", "credential", credential)
+		log.Warn("verify credential failed", "err", err, "credential", credential)
 		return err
 	}
 
