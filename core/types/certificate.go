@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"unsafe"
 
+	"github.com/kaleidochain/kaleido/params"
+
 	"github.com/kaleidochain/kaleido/crypto/ed25519"
 
 	"github.com/kaleidochain/kaleido/common/math"
@@ -78,6 +80,23 @@ func VoteTypeOfStep(step uint32) uint32 {
 	return BadStep
 }
 
+func GetCommitteeNumber(height uint64, step uint32) (uint64, uint64) {
+	const proposerThreshold = 1
+	if step == RoundStep1Proposal {
+		return proposerThreshold, params.CommitteeConfigv1.NumProposer
+	}
+
+	if step == RoundStep2Filtering {
+		return params.CommitteeConfigv1.SoftCommitteeThreshold, params.CommitteeConfigv1.SoftCommitteeSize
+	}
+
+	if step == RoundStep3Certifying {
+		return params.CommitteeConfigv1.CertCommitteeThreshold, params.CommitteeConfigv1.CertCommitteeSize
+	}
+
+	return params.CommitteeConfigv1.NextCommitteeThreshold, params.CommitteeConfigv1.NextCommitteeSize
+}
+
 func LessThanByProof(proofA, proofB *ed25519.VrfProof, jA, jB uint64) bool {
 	return LessThanByProofInt(proofA, proofB, jA, jB) < 0
 }
@@ -108,16 +127,6 @@ func minRandHash(hash ed25519.VrfOutput256, j uint64) []byte {
 		}
 	}
 	return min[:]
-}
-
-func EqualToByProof(a, b *ed25519.VrfProof) bool {
-	hashA, okA := ed25519.VrfProofToHash256(a)
-	hashB, okB := ed25519.VrfProofToHash256(b)
-	if !okA || !okB {
-		panic(fmt.Sprintf("bad vrf proof: %x, %x", a, b))
-	}
-
-	return hashA == hashB
 }
 
 // For minimal storage

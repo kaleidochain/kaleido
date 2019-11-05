@@ -17,18 +17,13 @@
 package core
 
 import (
-	"bytes"
 	"errors"
 	"math/big"
 
-	"github.com/kaleidochain/kaleido/common/hexutil"
-
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/kaleidochain/kaleido/core/state"
-	"github.com/kaleidochain/kaleido/core/types"
-
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
+	"github.com/kaleidochain/kaleido/core/state"
 	"github.com/kaleidochain/kaleido/crypto/ed25519"
 	"github.com/kaleidochain/kaleido/params"
 )
@@ -100,45 +95,6 @@ func (d *sortitionData) Bytes() []byte {
 	return data
 }
 
-// GetWeight returns weight of a miner. It's caller's responsibility to check that addr is a miner of current block
-func GetWeight(config *params.AlgorandConfig, miner common.Address, stateDb *state.StateDB, totalBalanceOfMiners *big.Int, hash ed25519.VrfOutput256) (ownWeight, totalWeight uint64) {
-	ownBalance := state.GetBalanceWithFund(stateDb, miner)
-
-	var hashHalf ed25519.VrfOutput256
-	hashHalf[0] = 0x80
-
-	// ownWeight = TotalWeight * ownBalance / TotalBalanceOfMiners ... reminder
-	ownWeightBig := new(big.Int).Mul(config.TotalWeight, ownBalance)
-	reminder := new(big.Int)
-	ownWeightBig.QuoRem(ownWeightBig, totalBalanceOfMiners, reminder)
-
-	ownWeight = ownWeightBig.Uint64()
-
-	var delta uint64
-	if reminder.Uint64() != 0 {
-		r := bytes.Compare(hash[:], hashHalf[:])
-
-		if r < 0 {
-			delta = 0
-		} else if r > 0 {
-			delta = 1
-		} else {
-			if ownWeight%2 == 0 {
-				delta = 0
-			} else {
-				delta = 1
-			}
-		}
-	}
-	ownWeight += delta
-	totalWeight = config.TotalWeight.Uint64()
-
-	log.Trace("GetWeight", "address", miner, "totalBalance", totalBalanceOfMiners, "totalWeight", totalWeight,
-		"ownBalance", ownBalance, "ownWeight", ownWeight, "reminder", reminder, "hash", hexutil.Encode(hash[:3]))
-
-	return
-}
-
 func GetMinerVerifier(config *params.AlgorandConfig, statedb *state.StateDB, miner common.Address, height uint64) *MinerVerifier {
 	minerdb := state.NewMinerContract(config)
 	start, lifespan, coinbase, vrfVerifier, voteVerifier := minerdb.Get(statedb, height, miner)
@@ -173,21 +129,4 @@ func VerifySignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature
 
 	credential.Weight = choosedWeight
 	return nil
-}
-
-func GetCommitteeNumber(height uint64, step uint32) (uint64, uint64) {
-	const proposerThreshold = 1
-	if step == types.RoundStep1Proposal {
-		return proposerThreshold, params.CommitteeConfigv1.NumProposer
-	}
-
-	if step == types.RoundStep2Filtering {
-		return params.CommitteeConfigv1.SoftCommitteeThreshold, params.CommitteeConfigv1.SoftCommitteeSize
-	}
-
-	if step == types.RoundStep3Certifying {
-		return params.CommitteeConfigv1.CertCommitteeThreshold, params.CommitteeConfigv1.CertCommitteeSize
-	}
-
-	return params.CommitteeConfigv1.NextCommitteeThreshold, params.CommitteeConfigv1.NextCommitteeSize
 }

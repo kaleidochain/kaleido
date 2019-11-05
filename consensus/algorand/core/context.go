@@ -22,13 +22,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/kaleidochain/kaleido/consensus/algorand/core/sortition"
 
 	"github.com/kaleidochain/kaleido/crypto/ed25519"
 
@@ -1070,7 +1067,7 @@ func (ctx *Context) handleVote(vote *VoteData, from string) error {
 
 	ctx.broadcastMsg(HasVoteMsg, ToHasVote(vote))
 
-	threshold, _ := GetCommitteeNumber(vote.Height, vote.Step)
+	threshold, _ := types.GetCommitteeNumber(vote.Height, vote.Step)
 	added, newPotential, enough, err := ctx.counter.AddVoteAndCount(vote, threshold)
 	if err != nil {
 		return err
@@ -1284,7 +1281,7 @@ func (ctx *Context) resetParentRoundVoteSet() {
 		votes[i] = NewVoteDataFromCertVoteStorage(certVote, ctx.parent.NumberU64(), certificate.Round, certificate.Value)
 	}
 
-	threshold, _ := GetCommitteeNumber(ctx.parent.NumberU64(), types.RoundStep3Certifying)
+	threshold, _ := types.GetCommitteeNumber(ctx.parent.NumberU64(), types.RoundStep3Certifying)
 	ctx.parentRoundVoteSet = NewRoundVoteSetFromCertificates(votes, threshold)
 	ctx.parentCertVoteRound = certificate.Round
 }
@@ -1308,7 +1305,7 @@ func (ctx *Context) resetParentProposalBlockData() {
 		return
 	}
 
-	sortitionWeight := GetSortitionWeightByState(ctx.config.Algorand, ctx.parentStatedb, ctx.parent.Header(), ctx.header)
+	sortitionWeight := core.GetSortitionWeightByState(ctx.config.Algorand, ctx.parentStatedb, ctx.parent.Header(), ctx.header)
 
 	certificate := ctx.parent.Certificate()
 	ctx.parentProposalBlockData = NewProposalBlockDataFromProposalStorage(&certificate.Proposal, ctx.parent, sortitionWeight)
@@ -1730,38 +1727,7 @@ func (ctx *Context) Stake() uint64 {
 	var hashHalf ed25519.VrfOutput256
 	hashHalf[0] = 0x80
 
-	weight, _ := GetWeight(ctx.config.Algorand, ctx.currentMiner, stateDb, currentBlock.TotalBalanceOfMiners(), hashHalf)
+	weight, _ := core.GetWeight(ctx.config.Algorand, ctx.currentMiner, stateDb, currentBlock.TotalBalanceOfMiners(), hashHalf)
 
 	return weight
-}
-
-func GetSortitionWeight(config *params.AlgorandConfig, bc *core.BlockChain, height uint64, proof ed25519.VrfProof, miner common.Address) (j uint64) {
-	parentHeader := bc.GetHeaderByNumber(height - 1)
-	stateDb, err := bc.StateAt(parentHeader.Root)
-	if err != nil {
-		log.Error("Failed to get stateDb", "err", err)
-		return
-	}
-
-	j = getSortitionWeight(config, stateDb, height, proof, miner, parentHeader.TotalBalanceOfMiners)
-
-	return
-}
-
-func GetSortitionWeightByState(config *params.AlgorandConfig, parentStateDb *state.StateDB, parent, header *types.Header) (j uint64) {
-	return getSortitionWeight(config, parentStateDb, header.Number.Uint64(), header.Proof(), header.Proposer(), parent.TotalBalanceOfMiners)
-}
-
-func getSortitionWeight(config *params.AlgorandConfig, parentStateDb *state.StateDB, height uint64, proof ed25519.VrfProof, miner common.Address, totalBalanceOfMiners *big.Int) (j uint64) {
-	hash, ok := ed25519.VrfProofToHash256(&proof)
-	if !ok {
-		return 0
-	}
-
-	ownWeight, totalWeight := GetWeight(config, miner, parentStateDb, totalBalanceOfMiners, hash)
-
-	threshold, size := GetCommitteeNumber(height, types.RoundStep1Proposal)
-	j = sortition.Choose(hash, ownWeight, threshold, size, totalWeight)
-
-	return
 }

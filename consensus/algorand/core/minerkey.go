@@ -22,7 +22,10 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/kaleidochain/kaleido/consensus/algorand/core/sortition"
+	"github.com/kaleidochain/kaleido/core"
+	"github.com/kaleidochain/kaleido/core/types"
+
+	"github.com/kaleidochain/kaleido/sortition"
 
 	"github.com/kaleidochain/kaleido/core/state"
 
@@ -111,9 +114,9 @@ func (mk *MinerKey) Sortition(height uint64, round, step uint32, parentSeed ed25
 		return
 	}
 
-	ownWeight, totalWeight := GetWeight(mk.config, mk.Miner, parentState, totalBalanceOfMiners, hash)
+	ownWeight, totalWeight := core.GetWeight(mk.config, mk.Miner, parentState, totalBalanceOfMiners, hash)
 
-	threshold, size := GetCommitteeNumber(height, step)
+	threshold, size := types.GetCommitteeNumber(height, step)
 	j = sortition.Choose(hash, ownWeight, threshold, size, totalWeight)
 
 	return
