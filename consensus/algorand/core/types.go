@@ -265,7 +265,7 @@ type HasProposalData struct {
 	Round  uint32
 	Proof  ed25519.VrfProof
 	Value  common.Hash
-	Weight uint64
+	Weight uint64 `rlp:"-"`
 }
 
 func (data *HasProposalData) String() string {
