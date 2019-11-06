@@ -1305,7 +1305,7 @@ func (ctx *Context) resetParentProposalBlockData() {
 		return
 	}
 
-	sortitionWeight := core.GetSortitionWeightByState(ctx.config.Algorand, ctx.parentStatedb, ctx.parent.Header(), ctx.header)
+	sortitionWeight := core.GetSortitionWeight(ctx.config.Algorand, ctx.eth.BlockChain(), ctx.parent.NumberU64(), ctx.parent.Proof(), ctx.parent.Proposer())
 
 	certificate := ctx.parent.Certificate()
 	ctx.parentProposalBlockData = NewProposalBlockDataFromProposalStorage(&certificate.Proposal, ctx.parent, sortitionWeight)

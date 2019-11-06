@@ -21,23 +21,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kaleidochain/kaleido/p2p/enode"
-
-	"github.com/kaleidochain/kaleido/consensus/algorand/core"
-	"github.com/kaleidochain/kaleido/core/state"
-
-	"github.com/kaleidochain/kaleido/event"
-	"github.com/kaleidochain/kaleido/params"
-
-	"github.com/kaleidochain/kaleido/consensus"
-
-	"github.com/kaleidochain/kaleido/core/types"
-
-	"github.com/kaleidochain/kaleido/common"
-
 	"github.com/ethereum/go-ethereum/log"
-
+	"github.com/kaleidochain/kaleido/common"
+	"github.com/kaleidochain/kaleido/consensus"
+	"github.com/kaleidochain/kaleido/consensus/algorand/core"
+	core2 "github.com/kaleidochain/kaleido/core"
+	"github.com/kaleidochain/kaleido/core/state"
+	"github.com/kaleidochain/kaleido/core/types"
+	"github.com/kaleidochain/kaleido/event"
 	"github.com/kaleidochain/kaleido/p2p"
+	"github.com/kaleidochain/kaleido/p2p/enode"
+	"github.com/kaleidochain/kaleido/params"
 )
 
 const gossipMaxHeightDiff = 10
@@ -190,7 +184,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
 		p.UpdateHR(data.Height, data.Round)
-		data.Weight = core.GetSortitionWeight(pm.config.Algorand, pm.eth.BlockChain(), data.Height, data.Proof, data.Address)
+		data.Weight = core2.GetSortitionWeight(pm.config.Algorand, pm.eth.BlockChain(), data.Height, data.Proof, data.Address)
 		p.SetHasProposalValue(data.ToHasProposalData())
 		pm.ctx.OnReceive(core.ProposalLeaderMsg, &data, p.String())
 
@@ -200,7 +194,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
 		p.UpdateHR(data.Height, data.Round)
-		data.Weight = core.GetSortitionWeight(pm.config.Algorand, pm.eth.BlockChain(), data.Height, data.Proof, data.Address)
+		data.Weight = core2.GetSortitionWeight(pm.config.Algorand, pm.eth.BlockChain(), data.Height, data.Proof, data.Address)
 		p.SetHasProposalBlock(data.ToHasProposalData())
 		pm.ctx.OnReceive(core.ProposalBlockMsg, &data, p.String())
 
@@ -570,7 +564,7 @@ func (pm *ProtocolManager) getProposalBlockByHeight(height uint64) *core.Proposa
 		return nil
 	}
 
-	sortitionWeight := core.GetSortitionWeight(pm.config.Algorand, pm.eth.BlockChain(), height, block.Proof(), block.Proposer())
+	sortitionWeight := core2.GetSortitionWeight(pm.config.Algorand, pm.eth.BlockChain(), height, block.Proof(), block.Proposer())
 
 	certificate := block.Certificate()
 	data := core.NewProposalBlockDataFromProposalStorage(&certificate.Proposal, block, sortitionWeight)
