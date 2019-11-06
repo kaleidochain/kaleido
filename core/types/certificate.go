@@ -102,6 +102,15 @@ func LessThanByProof(proofA, proofB *ed25519.VrfProof, jA, jB uint64) bool {
 }
 
 func LessThanByProofInt(proofA, proofB *ed25519.VrfProof, jA, jB uint64) int {
+	if jA == 0 && jB == 0 {
+		panic(fmt.Sprintf("jA == 0 && jB == 0, it is impossible"))
+	}
+	if jA == 0 {
+		return 1
+	} else if jB == 0 {
+		return -1
+	}
+
 	hashA, okA := ed25519.VrfProofToHash256(proofA)
 	hashB, okB := ed25519.VrfProofToHash256(proofB)
 	if !okA || !okB {
