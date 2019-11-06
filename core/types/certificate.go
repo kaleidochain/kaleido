@@ -19,8 +19,11 @@ package types
 import (
 	"bytes"
 	"crypto/sha512"
+	"encoding/binary"
 	"fmt"
 	"unsafe"
+
+	"github.com/kaleidochain/kaleido/params"
 
 	"github.com/kaleidochain/kaleido/crypto/ed25519"
 
@@ -77,41 +80,68 @@ func VoteTypeOfStep(step uint32) uint32 {
 	return BadStep
 }
 
-func LessThanByProof(a, b *ed25519.VrfProof) bool {
-	hashA, okA := ed25519.VrfProofToHash256(a)
-	hashB, okB := ed25519.VrfProofToHash256(b)
-	if !okA || !okB {
-		panic(fmt.Sprintf("bad vrf proof: %x, %x", a, b))
+func GetCommitteeNumber(height uint64, step uint32) (uint64, uint64) {
+	const proposerThreshold = 1
+	if step == RoundStep1Proposal {
+		return proposerThreshold, params.CommitteeConfigv1.NumProposer
 	}
 
-	randA := sha512.Sum512_256(hashA[:])
-	randB := sha512.Sum512_256(hashB[:])
+	if step == RoundStep2Filtering {
+		return params.CommitteeConfigv1.SoftCommitteeThreshold, params.CommitteeConfigv1.SoftCommitteeSize
+	}
 
-	return bytes.Compare(randA[:], randB[:]) < 0
+	if step == RoundStep3Certifying {
+		return params.CommitteeConfigv1.CertCommitteeThreshold, params.CommitteeConfigv1.CertCommitteeSize
+	}
+
+	return params.CommitteeConfigv1.NextCommitteeThreshold, params.CommitteeConfigv1.NextCommitteeSize
 }
 
-func EqualToByProof(a, b *ed25519.VrfProof) bool {
-	hashA, okA := ed25519.VrfProofToHash256(a)
-	hashB, okB := ed25519.VrfProofToHash256(b)
-	if !okA || !okB {
-		panic(fmt.Sprintf("bad vrf proof: %x, %x", a, b))
+func LessThanByProof(proofA, proofB *ed25519.VrfProof, jA, jB uint64) bool {
+	return LessThanByProofInt(proofA, proofB, jA, jB) < 0
+}
+
+func LessThanByProofInt(proofA, proofB *ed25519.VrfProof, jA, jB uint64) int {
+	if jA == 0 && jB == 0 {
+		panic(fmt.Sprintf("jA == 0 && jB == 0, it is impossible"))
+	}
+	if jA == 0 {
+		return 1
+	} else if jB == 0 {
+		return -1
 	}
 
-	return hashA == hashB
+	hashA, okA := ed25519.VrfProofToHash256(proofA)
+	hashB, okB := ed25519.VrfProofToHash256(proofB)
+	if !okA || !okB {
+		panic(fmt.Sprintf("bad vrf proof: %x, %x", proofA, proofB))
+	}
+
+	minA := minRandHash(hashA, jA)
+	minB := minRandHash(hashB, jB)
+
+	return bytes.Compare(minA, minB)
+}
+
+func minRandHash(hash ed25519.VrfOutput256, j uint64) []byte {
+	min := sha512.Sum512_256(hash[:])
+	for i := uint64(2); i <= j; i++ {
+		b := new(bytes.Buffer)
+		b.Write(hash[:])
+		binary.Write(b, binary.BigEndian, i)
+		hash512 := sha512.Sum512_256(b.Bytes())
+
+		if bytes.Compare(hash512[:], min[:]) < 0 {
+			min = hash512
+		}
+	}
+	return min[:]
 }
 
 // For minimal storage
 type CredentialStorage struct {
 	Address common.Address   `json:"address" gencodec:"required"`
 	Proof   ed25519.VrfProof `json:"proof" gencodec:"required"`
-}
-
-func (c CredentialStorage) EqualTo(other *CredentialStorage) bool {
-	return EqualToByProof(&c.Proof, &other.Proof)
-}
-
-func (c *CredentialStorage) LessThan(other *CredentialStorage) bool {
-	return LessThanByProof(&c.Proof, &other.Proof)
 }
 
 func (c *CredentialStorage) String() string {
@@ -161,6 +191,10 @@ func (c *Certificate) Proposer() common.Address {
 
 func (c *Certificate) SetProposer(addr common.Address) {
 	c.Proposal.Credential.Address = addr
+}
+
+func (c *Certificate) Proof() ed25519.VrfProof {
+	return c.Proposal.Credential.Proof
 }
 
 func (c *Certificate) SeedProof() ed25519.VrfProof {

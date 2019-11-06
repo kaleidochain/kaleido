@@ -22,7 +22,11 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/kaleidochain/kaleido/consensus/algorand/core/sortition"
+	"github.com/kaleidochain/kaleido/core/types"
+
+	"github.com/kaleidochain/kaleido/core"
+
+	"github.com/kaleidochain/kaleido/sortition"
 
 	"github.com/kaleidochain/kaleido/core/state"
 
@@ -91,9 +95,9 @@ func (mv *MinerVerifier) VerifySortition(height uint64, round, step uint32, proo
 		return
 	}
 
-	ownWeight, totalWeight := GetWeight(mv.config, mv.miner, parentState, totalBalanceOfMiners, hash)
+	ownWeight, totalWeight := core.GetWeight(mv.config, mv.miner, parentState, totalBalanceOfMiners, hash)
 
-	threshold, size := GetCommitteeNumber(height, step)
+	threshold, size := types.GetCommitteeNumber(height, step)
 	j = sortition.Choose(hash, ownWeight, threshold, size, totalWeight)
 
 	if j == 0 {

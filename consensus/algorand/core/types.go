@@ -72,18 +72,19 @@ type Credential struct {
 	Weight uint64 `json:"weight" rlp:"-"`
 }
 
-func NewCredentialFromCredentialStorage(storage *types.CredentialStorage, height uint64, round uint32, step uint32) Credential {
+func NewCredentialFromCredentialStorage(storage *types.CredentialStorage, height uint64, round uint32, step uint32, weight uint64) Credential {
 	return Credential{
 		Address: storage.Address,
 		Height:  height,
 		Round:   round,
 		Step:    step,
 		Proof:   storage.Proof,
+		Weight:  weight,
 	}
 }
 
 func (c *Credential) LessThan(other *Credential) bool {
-	return types.LessThanByProof(&c.Proof, &other.Proof)
+	return types.LessThanByProof(&c.Proof, &other.Proof, c.Weight, other.Weight)
 }
 
 func (c *Credential) String() string {
@@ -102,7 +103,7 @@ func NewProposalLeaderDataFromStorage(value common.Hash, height uint64, storage 
 	return &ProposalLeaderData{
 		Value:      value,
 		ESignValue: storage.ESignValue,
-		Credential: NewCredentialFromCredentialStorage(&storage.Credential, height, storage.Round, types.RoundStep1Proposal),
+		Credential: NewCredentialFromCredentialStorage(&storage.Credential, height, storage.Round, types.RoundStep1Proposal, 0),
 	}
 }
 
@@ -120,7 +121,7 @@ func (data *ProposalLeaderData) LessThan(other *ProposalLeaderData) bool {
 }
 
 func (data *ProposalLeaderData) ToHasProposalData() *HasProposalData {
-	return &HasProposalData{data.Height, data.Round, data.Credential.Proof, data.Value}
+	return &HasProposalData{data.Height, data.Round, data.Credential.Proof, data.Value, data.Weight}
 }
 
 func (data *ProposalLeaderData) Valid(height uint64) bool {
@@ -134,7 +135,7 @@ type ProposalBlockData struct {
 	Credential
 }
 
-func NewProposalBlockDataFromProposalStorage(leader *types.ProposalStorage, block *types.Block) *ProposalBlockData {
+func NewProposalBlockDataFromProposalStorage(leader *types.ProposalStorage, block *types.Block, weight uint64) *ProposalBlockData {
 	// remove Certificate from header
 	headerNoCert := block.Header()
 	headerNoCert.Certificate = new(types.Certificate)
@@ -145,7 +146,7 @@ func NewProposalBlockDataFromProposalStorage(leader *types.ProposalStorage, bloc
 	return &ProposalBlockData{
 		Block:      block.WithSeal(headerNoCert),
 		ESignValue: leader.ESignValue,
-		Credential: NewCredentialFromCredentialStorage(&leader.Credential, block.NumberU64(), leader.Round, types.RoundStep1Proposal),
+		Credential: NewCredentialFromCredentialStorage(&leader.Credential, block.NumberU64(), leader.Round, types.RoundStep1Proposal, weight),
 	}
 }
 
@@ -170,7 +171,7 @@ func (data *ProposalBlockData) LessThan(other *ProposalBlockData) bool {
 }
 
 func (data *ProposalBlockData) ToHasProposalData() *HasProposalData {
-	return &HasProposalData{data.Height, data.Round, data.Credential.Proof, data.Block.Hash()}
+	return &HasProposalData{data.Height, data.Round, data.Credential.Proof, data.Block.Hash(), data.Weight}
 }
 
 func (data *ProposalBlockData) ToProposalStorage() types.ProposalStorage {
@@ -229,7 +230,7 @@ func NewVoteDataFromCertVoteStorage(storage *types.CertVoteStorage, height uint6
 	return &VoteData{
 		Value:      value,
 		ESignValue: storage.ESignValue,
-		Credential: NewCredentialFromCredentialStorage(&storage.Credential, height, round, types.RoundStep3Certifying),
+		Credential: NewCredentialFromCredentialStorage(&storage.Credential, height, round, types.RoundStep3Certifying, 0),
 	}
 }
 
@@ -264,8 +265,9 @@ type HasProposalData struct {
 	Round  uint32
 	Proof  ed25519.VrfProof
 	Value  common.Hash
+	Weight uint64 `rlp:"-"`
 }
 
 func (data *HasProposalData) String() string {
-	return fmt.Sprintf("HasProposalData: %d/%d %x %s", data.Height, data.Round, data.Proof[:3], data.Value.TerminalString())
+	return fmt.Sprintf("HasProposalData: %d/%d %x(%d) %s", data.Height, data.Round, data.Proof[:3], data.Weight, data.Value.TerminalString())
 }

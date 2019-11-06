@@ -335,11 +335,11 @@ func (s *StateProposal) OnEnter() {
 		log.Trace("StateMachine 1.1 Send Proposal",
 			"HRS", s.HRS(),
 			"SelfValue", s.newBlock.Hash())
-		s.sendProposal(s.newBlock.Hash(), s.sortitionHash, s.sortitionProof)
+		s.sendProposal(s.newBlock.Hash(), s.sortitionHash, s.sortitionProof, s.sortitionWeight)
 	} else { // the V must exist and must be the StartingValue
 		log.Trace("StateMachine 1.2 Send Proposal",
 			"HRS", s.HRS(), "StartingValue", s.StartingValue)
-		s.sendProposal(s.StartingValue, s.sortitionHash, s.sortitionProof)
+		s.sendProposal(s.StartingValue, s.sortitionHash, s.sortitionProof, s.sortitionWeight)
 	}
 }
 
