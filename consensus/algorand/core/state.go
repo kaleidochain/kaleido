@@ -169,14 +169,6 @@ func (s *StateBase) OnCertVoteEnough(value common.Hash, round uint32) StateEvent
 		"proposal-round", blockData.Round,
 	)
 
-	vote := s.makeStampingVote(sealedBlock)
-	s.eth.BlockChain().PostChainEvents([]interface{}{core.ChainStampingEvent{Vote: vote}}, nil)
-	log.Debug("make new stampingvote",
-		"hash", sealedBlock.Hash(),
-		"number", sealedBlock.NumberU64(),
-		"HRS", s.HRS(),
-		"vote", vote)
-
 	return HeightEnd
 }
 
