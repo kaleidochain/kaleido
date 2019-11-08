@@ -94,7 +94,6 @@ func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, 
 
 func (chain *StampingChain) Start() {
 	chain.processStatusAndChainConsistence()
-	chain.Sync()
 
 	go chain.syncer()
 	go chain.handleLoop()
@@ -1236,11 +1235,7 @@ func (chain *StampingChain) syncWithPeer() error {
 		return nil
 	}
 
-	chain.mutexChain.Lock()
-	defer chain.mutexChain.Unlock()
-
-	log.Trace("begin sync", "peer", peer.ID().String(), "chain", chain.stampingStatus.String(), "peer", peer.statusString())
-
+	log.Trace("begin sync", "peer", peer.ID().String(), "chain", chain.StatusString(), "peer", peer.StatusString())
 	err := chain.sync(peer)
 	log.Trace("end sync", "peer", peer.ID().String(), "err", err)
 	//chain.print()
@@ -1248,6 +1243,8 @@ func (chain *StampingChain) syncWithPeer() error {
 }
 
 func (chain *StampingChain) sync(peer *peer) error {
+	chain.mutexChain.Lock()
+
 	// make BaseHeader exist as the genesis block header for stamping certificate
 	if !chain.hasHeader(chain.config.Stamping.BaseHeight) {
 		if common.EmptyHash(chain.config.Stamping.BaseHash) {
@@ -1286,17 +1283,9 @@ func (chain *StampingChain) sync(peer *peer) error {
 		begin, end = nextBegin, nextEnd
 	}
 
-	if chain.stampingStatus.Height < peerStatus.Height {
+	if chain.stampingStatus.Height <= 1 || chain.stampingStatus.Height < peerStatus.Height {
 		log.Warn("dont reach latest status, return", "chain", chain.stampingStatus, "peer", peerStatus.String())
 		return fmt.Errorf("donot reach latest status, chain:%s, peer:%s", chain.stampingStatus.String(), peerStatus.String())
-	}
-
-	return chain.fetchLatestBlock(peer)
-}
-
-func (chain *StampingChain) fetchLatestBlock(p *peer) error {
-	if chain.stampingStatus.Height <= 1 {
-		return fmt.Errorf("sync failed, height(%d) <= 1", chain.stampingStatus.Height)
 	}
 
 	latest := chain.header(chain.stampingStatus.Height)
@@ -1304,12 +1293,18 @@ func (chain *StampingChain) fetchLatestBlock(p *peer) error {
 		return fmt.Errorf("laster header not exist, height:%d", chain.stampingStatus.Height)
 	}
 
+	chain.mutexChain.Unlock()
+
+	return chain.fetchLatestBlock(peer, latest)
+}
+
+func (chain *StampingChain) fetchLatestBlock(p *peer, latest *types.Header) error {
 	var block *blockData
 	var err error
 	if !chain.eth.BlockChain().HasFastBlock(latest.Hash(), latest.NumberU64()) {
 		block, err = p.GetBlockAndReceipts(latest.Hash())
 		if err != nil {
-			p.Log().Error("GetBlockAndReceipts failed", "chain", chain.stampingStatus.String())
+			p.Log().Error("GetBlockAndReceipts failed", "chain", chain.StatusString())
 			return err
 		}
 	}

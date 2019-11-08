@@ -92,6 +92,13 @@ func (p *peer) statusString() string {
 	return fmt.Sprintf("%d/%d/%d/%d", p.scStatus.Fz, p.scStatus.Proof, p.scStatus.Candidate, p.scStatus.Height)
 }
 
+func (p *peer) StatusString() string {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	return p.statusString()
+}
+
 func (p *peer) ChainStatus() types.StampingStatus {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
