@@ -175,7 +175,9 @@ func NewRoundVoteSetFromCertificates(votes []*VoteData, threshold uint64) *Round
 		Votes:  make([]*VoteData, len(votes)),
 	}
 	copy(voteSet.Votes, votes)
-	lastCertVotes.certVoteSet.Values[votes[0].Value.Str()] = voteSet
+	if len(votes) > 0 {
+		lastCertVotes.certVoteSet.Values[votes[0].Value.Str()] = voteSet
+	}
 
 	for _, certVote := range votes {
 		lastCertVotes.certVoteSet.userSet.Add(certVote.Address)
