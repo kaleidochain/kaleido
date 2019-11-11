@@ -31,6 +31,14 @@ func peerIdKey(id enode.ID) string {
 	return id.TerminalString()
 }
 
+type PeerInfo struct {
+	Version   uint32
+	Height    uint64
+	Candidate uint64
+	Proof     uint64
+	Fz        uint64
+}
+
 type peer struct {
 	id      string
 	version uint32
@@ -81,6 +89,20 @@ func (p *peer) IsClosed() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// Info gathers and returns a collection of metadata known about a peer.
+func (p *peer) Info() *PeerInfo {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	return &PeerInfo{
+		Version:   p.version,
+		Height:    p.scStatus.Height,
+		Candidate: p.scStatus.Candidate,
+		Proof:     p.scStatus.Proof,
+		Fz:        p.scStatus.Fz,
 	}
 }
 
@@ -177,6 +199,7 @@ func (p *peer) readStatus(networkId uint64, genesis common.Hash, stampingConfig 
 	if handshake.NetworkId != networkId {
 		return errResp(ErrNetworkIdMismatch, "%d (!= %d)", handshake.NetworkId, networkId)
 	}
+	p.scStatus = handshake.StampingStatus
 	return nil
 }
 
@@ -271,20 +294,12 @@ func (p *peer) PickAndSend(votes []*types.StampingVote) error {
 	return nil
 }
 
-func (p *peer) PickBuildingAndSend(votes *StampingVotes) error {
-	if votes == nil || len(votes.votes) == 0 {
+func (p *peer) PickBuildingAndSend(vote *types.StampingVote) error {
+	if vote == nil {
 		return fmt.Errorf("has no building votes")
 	}
 
-	for _, vote := range votes.votes {
-		if !p.counter.HasVote(vote) {
-			if err := p.SendStampingVote(vote); err == nil {
-			} // else {} ??
-			return nil
-		}
-	}
-
-	return fmt.Errorf("selected no vote")
+	return p.SendStampingVote(vote)
 }
 
 func (p *peer) SendMsgAsync(code uint64, data interface{}) {
@@ -476,12 +491,14 @@ func (ps *peerSet) Unregister(p *peer) {
 }
 
 // Returm random peer
-func (ps *peerSet) GetBestPeer() *peer {
+func (ps *peerSet) GetBestPeer(config *params.StampingConfig, status types.StampingStatus) *peer {
 	ps.lock.RLock()
 	defer ps.lock.RUnlock()
 
 	for _, p := range ps.peers {
-		return p
+		if p.scStatus.Height >= config.HeightB() {
+			return p
+		}
 	}
 
 	return nil

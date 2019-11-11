@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kaleidochain/kaleido/core/state"
+
 	"github.com/kaleidochain/kaleido/eth/downloader"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -64,7 +66,7 @@ type StampingChain struct {
 	stampingStatus             types.StampingStatus
 	messageChan                chan message
 	buildingStampingVoteWindow MapStampingVotes
-	belowStampingVoteWindow    MapStampingVotes
+	mutexBuilding              sync.RWMutex
 	checkNewInterval           uint64
 	checkNewTicker             *time.Ticker
 	counter                    *HeightVoteSet
@@ -81,7 +83,6 @@ func NewChain(eth Backend, config *params.ChainConfig, engine consensus.Engine, 
 	}
 	chain.messageChan = make(chan message, msgChanSize)
 	chain.buildingStampingVoteWindow = make(MapStampingVotes)
-	chain.belowStampingVoteWindow = make(MapStampingVotes)
 	chain.checkNewTicker = time.NewTicker(checkNewSCInterval)
 	chain.counter = NewHeightVoteSet()
 
@@ -129,7 +130,7 @@ func (chain *StampingChain) processStatusAndChainConsistence() {
 	if futureStampingStatus.Candidate > status.Candidate ||
 		futureStampingStatus.Proof > status.Proof ||
 		futureStampingStatus.Fz > status.Fz {
-		chain.doKeepStampingStatusUptoDate(futureStampingStatus.Candidate)
+		chain.DoKeepStampingStatusUptoDate(futureStampingStatus.Candidate)
 	}
 }
 
@@ -172,6 +173,13 @@ func (chain *StampingChain) header(height uint64) *types.Header {
 	}
 
 	return chain.eth.BlockChain().GetHeaderByNumber(height)
+}
+
+func (chain *StampingChain) HasHeader(height uint64) bool {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
+	return chain.header(height) != nil
 }
 
 func (chain *StampingChain) hasHeader(height uint64) bool {
@@ -224,8 +232,8 @@ func (chain *StampingChain) writeNonCertificateHeader(header *types.Header) erro
 	return chain.eth.BlockChain().WriteNonCertificateHeader(header)
 }
 
-func (chain *StampingChain) addForwardBlock(header *types.Header) error {
-	height := header.NumberU64()
+func (chain *StampingChain) addForwardBlock(headers []*types.Header) (uint64, error) {
+	/*height := header.NumberU64()
 	if height <= chain.stampingStatus.Height {
 		log.Warn("block lower than stamping status", "height", height, "status", chain.stampingStatus.String())
 		return errLowerThanHeight
@@ -234,63 +242,58 @@ func (chain *StampingChain) addForwardBlock(header *types.Header) error {
 		log.Warn("block exist", "height", height)
 		//return errExists
 	}
+	*/
 
-	parent := chain.header(height - 1)
+	header := headers[0]
+	parent := chain.header(header.NumberU64() - 1)
 	if parent == nil {
-		return fmt.Errorf("parent block(%d) not exists", height-1)
+		return 0, fmt.Errorf("parent block(%d) not exists in addForwardBlock", header.NumberU64()-1)
 	}
 
-	stateDb, err := algorand.GetStateDbFromProof(header.Certificate.TrieProof, parent.Root)
-	if err != nil {
-		log.Warn("statedb error", "height", height, "err", err)
-		return err
-	}
-	if err := algorand.DoVerifySeal(chain.config, stateDb, header, parent); err != nil {
-		return fmt.Errorf("DoVerifySeal failed, height:%d, err:%s", height, err)
+	maxHeight := uint64(0)
+	var stateDb *state.StateDB
+	var err error
+	for _, header := range headers {
+		stateDb, err = algorand.GetStateDbFromProof(header.Certificate.TrieProof, parent.Root)
+		if err != nil {
+			log.Warn("statedb error", "height", header.NumberU64(), "err", err)
+			break
+		}
+		if err = algorand.DoVerifySeal(chain.config, stateDb, header, parent); err != nil {
+			err = fmt.Errorf("DoVerifySeal failed, height:%d, err:%s", header.NumberU64(), err)
+			break
+		}
+
+		if err = chain.addForwardHeader(header); err != nil {
+			break
+		}
+
+		parent = header
+		maxHeight = header.NumberU64()
 	}
 
-	if err := chain.addForwardHeader(header); err != nil {
-		return err
-	}
-
-	chain.updateStatusHeight(height)
-	chain.writeStatusToDb()
-	chain.broadcastStampingStatusMsg()
-	return nil
+	return maxHeight, err
 }
 
-func (chain *StampingChain) addStampingCertificateWithSync(header *types.Header, sc *types.StampingCertificate) error {
-	log.Trace("addStampingCertificateWithSync", "header.Height", header.NumberU64(), "sc.Height", sc.Height)
-	if sc.Height <= chain.stampingStatus.Candidate {
-		return fmt.Errorf("sc(%d) lower than stamping status(%s)", sc.Height, chain.stampingStatus.String())
-	}
+func (chain *StampingChain) UpdateStatusHeight(height uint64) types.StampingStatus {
+	chain.mutexChain.Lock()
+	defer chain.mutexChain.Unlock()
 
-	if err := chain.verifyStampingCertificate(header, sc); err != nil {
-		return err
-	}
-
-	if err := chain.writeHeader(header); err != nil {
-		return err
-	}
-
-	if err := chain.writeStampingCertificate(sc); err != nil {
-		return err
-	}
-	chain.updateStatusHeight(header.NumberU64())
-	chain.keepStampingChainUptoDate(sc.Height)
-	return nil
+	return chain.updateStatusHeight(height)
 }
 
-func (chain *StampingChain) updateStatusHeight(height uint64) {
+func (chain *StampingChain) updateStatusHeight(height uint64) types.StampingStatus {
 	chain.stampingStatus.Height = height
+
+	return chain.stampingStatus
 }
 
 func (chain *StampingChain) writeFutureStatusToDb(futureStatus *types.StampingStatus) {
 	chain.eth.BlockChain().WriteFutureStampingCertificateStatus(futureStatus)
 }
 
-func (chain *StampingChain) writeStatusToDb() {
-	chain.eth.BlockChain().WriteStampingCertificateStatus(&chain.stampingStatus)
+func (chain *StampingChain) writeStatusToDb(status types.StampingStatus) {
+	chain.eth.BlockChain().WriteStampingCertificateStatus(&status)
 }
 
 func (chain *StampingChain) verifyStampingCertificate(header *types.Header, sc *types.StampingCertificate) error {
@@ -339,13 +342,17 @@ func (chain *StampingChain) writeStampingCertificate(sc *types.StampingCertifica
 func (chain *StampingChain) keepStampingChainUptoDate(height uint64) {
 	futureStampingStatus := chain.precomputedFutureStampingStatus(height)
 	chain.writeFutureStatusToDb(&futureStampingStatus)
-	if chain.doKeepStampingStatusUptoDate(height) {
-		chain.writeStatusToDb()
-		chain.broadcastStampingStatusMsg()
+	if chain.DoKeepStampingStatusUptoDate(height) {
+		chainStatus := chain.ChainStatus()
+		chain.writeStatusToDb(chainStatus)
+		chain.broadcastStampingStatusMsg(chainStatus)
 	}
 }
 
 func (chain *StampingChain) precomputedFutureStampingStatus(height uint64) (stampingStatus types.StampingStatus) {
+	chain.mutexChain.RLock()
+	defer chain.mutexChain.RUnlock()
+
 	stampingStatus = chain.stampingStatus
 
 	if height-chain.stampingStatus.Proof <= chain.config.Stamping.B {
@@ -358,41 +365,49 @@ func (chain *StampingChain) precomputedFutureStampingStatus(height uint64) (stam
 	return
 }
 
-func (chain *StampingChain) doKeepStampingStatusUptoDate(height uint64) bool {
-	if height <= chain.stampingStatus.Candidate {
+func (chain *StampingChain) DoKeepStampingStatusUptoDate(height uint64) bool {
+	var cleanFCStart, cleanFCEnd uint64
+	var cleanFreezeStart, cleanFreezeHeaderEnd, cleanFreezeEnd uint64
+	var cleanTrimStart, cleanTrimEnd uint64
+
+	if height <= chain.ChainStatus().Candidate {
 		return false
 	}
 
-	// delete fc
-	// max(N-B, C+1, B+1)
-	start := MaxUint64(height-chain.config.Stamping.B+1, chain.stampingStatus.Candidate+1)
-	chain.deleteFC(start, height)
+	func() {
+		chain.mutexChain.Lock()
+		defer chain.mutexChain.Unlock()
 
-	if height-chain.stampingStatus.Proof <= chain.config.Stamping.B {
-		chain.stampingStatus.Candidate = height
-	} else {
-		chain.freezeProof()
-		chain.stampingStatus.Fz = chain.stampingStatus.Proof
-		chain.stampingStatus.Proof = chain.stampingStatus.Candidate
-		chain.stampingStatus.Candidate = height
-	}
+		// delete fc
+		// max(N-B, C+1, B+1)
+		start := MaxUint64(height-chain.config.Stamping.B+1, chain.stampingStatus.Candidate+1)
+		//chain.deleteFC(start, height)
+		cleanFCStart, cleanFCEnd = start, height
 
-	// trim( max(QB - B, Fz), min((C-B), QB)) // 开区间
-	start = MaxUint64(chain.stampingStatus.Proof-chain.config.Stamping.B, chain.stampingStatus.Fz)
-	end := MinUint64(chain.stampingStatus.Candidate-chain.config.Stamping.B, chain.stampingStatus.Proof)
-	n := chain.trim(start, end)
-	_ = n
-	//fmt.Printf("trim range=[%d, %d] trimmed=%d/%d\n", start, end, n, end-start-1)
+		if height-chain.stampingStatus.Proof <= chain.config.Stamping.B {
+			chain.stampingStatus.Candidate = height
+		} else {
+			cleanFreezeStart, cleanFreezeHeaderEnd, cleanFreezeEnd = chain.freezeProof()
+			chain.stampingStatus.Fz = chain.stampingStatus.Proof
+			chain.stampingStatus.Proof = chain.stampingStatus.Candidate
+			chain.stampingStatus.Candidate = height
+		}
+
+		// trim( max(QB - B, Fz), min((C-B), QB)) // 开区间
+		start = MaxUint64(chain.stampingStatus.Proof-chain.config.Stamping.B, chain.stampingStatus.Fz)
+		end := MinUint64(chain.stampingStatus.Candidate-chain.config.Stamping.B, chain.stampingStatus.Proof)
+		//n := chain.trim(start, end)
+		//_ = n
+		cleanTrimStart, cleanTrimEnd = start, end
+	}()
+
+	func() {
+		chain.deleteFC(cleanFCStart, cleanFCEnd)
+		chain.deleteFreezeProof(cleanFreezeStart, cleanFreezeHeaderEnd, cleanFreezeEnd)
+		chain.trim(cleanTrimStart, cleanTrimEnd)
+	}()
 
 	return true
-}
-
-//Keeping proof-objects up-to-date
-func (chain *StampingChain) AddStampingCertificate(sc *types.StampingCertificate) error {
-	chain.mutexChain.Lock()
-	defer chain.mutexChain.Unlock()
-
-	return chain.addStampingCertificate(sc)
 }
 
 func (chain *StampingChain) deleteFC(start, end uint64) int {
@@ -410,12 +425,16 @@ func (chain *StampingChain) deleteFC(start, end uint64) int {
 	return count
 }
 
-func (chain *StampingChain) freezeProof() {
+func (chain *StampingChain) freezeProof() (start, headerEnd, end uint64) {
 	// freeze( max(Fz, QB-B), min(C-B, QB))
-	start := MaxUint64(chain.stampingStatus.Fz+1, chain.stampingStatus.Proof-chain.config.Stamping.B+1)
-	headerEnd := MinUint64(chain.stampingStatus.Candidate-chain.config.Stamping.B, chain.stampingStatus.Proof)
-	end := chain.stampingStatus.Proof
+	start = MaxUint64(chain.stampingStatus.Fz+1, chain.stampingStatus.Proof-chain.config.Stamping.B+1)
+	headerEnd = MinUint64(chain.stampingStatus.Candidate-chain.config.Stamping.B, chain.stampingStatus.Proof)
+	end = chain.stampingStatus.Proof
 
+	return
+}
+
+func (chain *StampingChain) deleteFreezeProof(start, headerEnd, end uint64) {
 	//trim the tail of P to keep its length minimal
 	for height := start; height < headerEnd; height++ {
 		//delete(chain.stampingChain, height)
@@ -605,24 +624,40 @@ func (chain *StampingChain) ChainStatus() types.StampingStatus {
 	return chain.stampingStatus
 }
 
-func (chain *StampingChain) forwardSyncRangeByHeaderAndFinalCertificate(p *peer, start, end uint64) error {
+func (chain *StampingChain) forwardSyncRangeByHeaderAndFinalCertificate(p *peer, start, end uint64) (uint64, error) {
 	log.Debug("forwardSyncRangeByHeaderAndFinalCertificate", "peer", p.ID().String(), "start", start, "end", end)
-	for height := start; height <= end && height <= p.ChainStatus().Height; height++ {
-		if chain.hasHeader(height) {
-			continue
+	const MaxHeaderFetchOnce = uint64(192)
+
+	stop := MinUint64(end, p.ChainStatus().Height)
+	height := start
+	needBreak := false
+	doneHeight := uint64(0)
+
+	for height <= stop {
+		stepStop := height + MaxHeaderFetchOnce
+		if stepStop > stop {
+			stepStop = height + MaxHeaderFetchOnce - stop
+			needBreak = true
 		}
 
-		headers := p.GetHeaders(height, height, true, true)
-		if headers == nil || headers[0] == nil {
-			return fmt.Errorf("p has no header or fc at height(%d)", height)
+		headers := p.GetHeaders(height, stepStop, true, true)
+		if len(headers) == 0 {
+			return doneHeight, fmt.Errorf("p has no header or fc at height(%d-->%d)", height, height+MaxHeaderFetchOnce)
 		}
 
-		if err := chain.addForwardBlock(headers[0]); err != nil {
-			return err
+		var err error
+		if doneHeight, err = chain.addForwardBlock(headers); err != nil {
+			return doneHeight, err
 		}
+
+		if needBreak {
+			break
+		}
+
+		height += MaxHeaderFetchOnce
 	}
 
-	return nil
+	return doneHeight, nil
 }
 
 func (chain *StampingChain) backwardSyncRangeOnlyByHeader(p *peer, start, end uint64, endHash common.Hash) error {
@@ -753,15 +788,15 @@ func (bc *breadcrumb) String() string {
 	return fmt.Sprintf("sc:%d, tail len:%d, forward len:%d", bc.StampingCertificate.Height, len(bc.Tail), len(bc.ForwardHeader))
 }
 
-func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (nextBegin, nextEnd uint64, err error) {
+func (chain *StampingChain) syncNextBreadcrumb(chainStatus types.StampingStatus, p *peer, begin, end uint64) (nextBegin, nextEnd uint64, err error) {
 	var bc *breadcrumb
-	bc, err = p.GetNextBreadcrumb(begin, end, chain.stampingStatus)
+	bc, err = p.GetNextBreadcrumb(begin, end, chainStatus)
 	if err != nil {
 		return
 	}
 
 	if bc.StampingHeader == nil && len(bc.ForwardHeader) < 1 {
-		err = fmt.Errorf("get no data from peer:%s", p.ID())
+		log.Warn("get no data from peer", "peer", p.ID(), "chain", chainStatus.String(), "peer.status", p.StatusString())
 		return
 	}
 
@@ -788,15 +823,15 @@ func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (next
 		nextBegin = chain.stampingStatus.Height + 1
 		nextEnd = (chain.stampingStatus.Height - uint64(len(bc.Tail))) + chain.config.Stamping.B
 	} else {
-		for _, h := range bc.ForwardHeader {
-			err = chain.addForwardBlock(h)
-			if err == errExists || err == errLowerThanHeight {
-				continue
-			}
-			if err != nil {
-				return
-			}
+		var doneHeight uint64
+		doneHeight, err = chain.addForwardBlock(bc.ForwardHeader)
+		if err != nil {
+			return
 		}
+
+		status := chain.UpdateStatusHeight(doneHeight)
+		chain.writeStatusToDb(status)
+		chain.broadcastStampingStatusMsg(status)
 
 		nextBegin = chain.stampingStatus.Height + 1
 		nextEnd = chain.stampingStatus.Height + chain.config.Stamping.B
@@ -808,7 +843,7 @@ func (chain *StampingChain) syncNextBreadcrumb(p *peer, begin, end uint64) (next
 func (chain *StampingChain) syncBreadcrumbWithTailHeader(header *types.Header, sc *types.StampingCertificate, tail []*types.Header) error {
 	height := header.NumberU64()
 	log.Trace("syncBreadcrumbWithTailHeader", "header.Height", height, "sc.Height", sc.Height)
-	if sc.Height <= chain.stampingStatus.Candidate {
+	if sc.Height <= chain.ChainStatus().Candidate {
 		return fmt.Errorf("sc(%d) lower than stamping status(%s)", sc.Height, chain.stampingStatus.String())
 	}
 
@@ -823,8 +858,8 @@ func (chain *StampingChain) syncBreadcrumbWithTailHeader(header *types.Header, s
 	if err := chain.writeStampingCertificate(sc); err != nil {
 		return err
 	}
-	chain.updateStatusHeight(height)
-	if chain.doKeepStampingStatusUptoDate(height) {
+	chain.UpdateStatusHeight(height)
+	if chain.DoKeepStampingStatusUptoDate(height) {
 		for _, tailHeader := range tail {
 			err := chain.addBackwardHeader(tailHeader)
 			if err != nil {
@@ -832,8 +867,9 @@ func (chain *StampingChain) syncBreadcrumbWithTailHeader(header *types.Header, s
 			}
 		}
 
-		chain.writeStatusToDb()
-		chain.broadcastStampingStatusMsg()
+		status := chain.ChainStatus()
+		chain.writeStatusToDb(status)
+		chain.broadcastStampingStatusMsg(status)
 	}
 	return nil
 }
@@ -905,8 +941,6 @@ func (chain *StampingChain) handleLoop() {
 				log.Error("handle check new stampingcertificate failed", "err", err)
 			}
 
-			// for statistic
-			chain.checkBelowCEnoughVotesAndCount()
 		case err := <-chainStampingSub.Err():
 			log.Error("handleLoop chainStampingSub error", "err", err)
 			return
@@ -915,9 +949,14 @@ func (chain *StampingChain) handleLoop() {
 }
 
 func (chain *StampingChain) handleStampingEvent(stampingEvent core.ChainStampingEvent) {
-	chain.handleUpdateStatus()
-	chain.writeStatusToDb()
-	chain.broadcastStampingStatusMsg()
+	log.Trace("handleUpdateStatus", "Status", chain.stampingStatus)
+
+	currentBlock := chain.eth.BlockChain().CurrentBlock()
+	status := chain.UpdateStatusHeight(currentBlock.NumberU64())
+	chain.writeStatusToDb(status)
+	chain.broadcastStampingStatusMsg(status)
+
+	log.Trace("handleUpdateStatus done", "Status", chain.stampingStatus)
 
 	if err := chain.handleStampingVote(stampingEvent.Vote); err != nil {
 		log.Error("handleStampingVote error", "status", chain.stampingStatus, "err", err)
@@ -939,20 +978,8 @@ func (chain *StampingChain) handleMsg(msg message) {
 	}
 }
 
-func (chain *StampingChain) handleUpdateStatus() {
-	log.Trace("handleUpdateStatus", "Status", chain.stampingStatus)
-
-	chain.mutexChain.Lock()
-	defer chain.mutexChain.Unlock()
-
-	currentBlock := chain.eth.BlockChain().CurrentBlock()
-	chain.stampingStatus.Height = currentBlock.NumberU64()
-
-	log.Trace("handleUpdateStatus done", "Status", chain.stampingStatus)
-}
-
-func (chain *StampingChain) broadcastStampingStatusMsg() {
-	chain.pm.Broadcast(StampingStatusMsg, &chain.stampingStatus)
+func (chain *StampingChain) broadcastStampingStatusMsg(status types.StampingStatus) {
+	chain.pm.Broadcast(StampingStatusMsg, &status)
 }
 
 func (chain *StampingChain) handleStampingVote(vote *types.StampingVote) error {
@@ -999,27 +1026,20 @@ func (chain *StampingChain) handleStampingVote(vote *types.StampingVote) error {
 }
 
 func (chain *StampingChain) checkEnoughVotesAndAddToSCChain() (err error) {
-	chain.mutexChain.Lock()
-	defer chain.mutexChain.Unlock()
-
-	maxEnoughVotesHeight, enoughHeights := findEnoughHeights(chain.buildingStampingVoteWindow, params.CommitteeConfigv1.StampingCommitteeThreshold)
+	maxEnoughVotesHeight, enoughHeights := chain.findEnoughHeights(params.CommitteeConfigv1.StampingCommitteeThreshold)
 
 	if maxEnoughVotesHeight != 0 {
 		sort.Slice(enoughHeights, func(i, j int) bool {
 			return enoughHeights[i] < enoughHeights[j]
 		})
 
+		chainStatus := chain.ChainStatus()
 		for _, height := range enoughHeights {
-			if height <= chain.stampingStatus.Candidate {
+			if height <= chainStatus.Candidate {
 				continue
 			}
 			//
-			var scVotes []*types.StampingVote
-			votes := chain.buildingStampingVoteWindow[height]
-			for _, vote := range votes.votes {
-				scVotes = append(scVotes, vote)
-			}
-			delete(chain.buildingStampingVoteWindow, height)
+			scVotes := chain.pickStampingVotesAndDeleteFromBuilding(height)
 
 			header := chain.header(height)
 			if header == nil {
@@ -1035,25 +1055,47 @@ func (chain *StampingChain) checkEnoughVotesAndAddToSCChain() (err error) {
 			log.Trace("add sc done", "height", height)
 		}
 
-		for height := range chain.buildingStampingVoteWindow {
-			if height <= maxEnoughVotesHeight || height <= chain.stampingStatus.Candidate {
-				delete(chain.buildingStampingVoteWindow, height)
-			}
-		}
-
-		chain.pm.Broadcast(StampingStatusMsg, &chain.stampingStatus)
+		chainStatus = chain.ChainStatus()
+		chain.cleanBuildingWindown(maxEnoughVotesHeight, chainStatus)
 	}
 	log.Trace("check enough done", "max height", maxEnoughVotesHeight)
 
 	return nil
 }
 
-func findEnoughHeights(window MapStampingVotes, threshold uint64) (uint64, []uint64) {
+func (chain *StampingChain) cleanBuildingWindown(maxEnoughVotesHeight uint64, chainStatus types.StampingStatus) {
+	chain.mutexBuilding.Lock()
+	defer chain.mutexBuilding.Unlock()
+
+	for height := range chain.buildingStampingVoteWindow {
+		if height <= maxEnoughVotesHeight || height <= chainStatus.Candidate {
+			delete(chain.buildingStampingVoteWindow, height)
+		}
+	}
+}
+
+func (chain *StampingChain) pickStampingVotesAndDeleteFromBuilding(height uint64) []*types.StampingVote {
+	chain.mutexBuilding.Lock()
+	defer chain.mutexBuilding.Unlock()
+
+	var scVotes []*types.StampingVote
+	votes := chain.buildingStampingVoteWindow[height]
+	for _, vote := range votes.votes {
+		scVotes = append(scVotes, vote)
+	}
+	delete(chain.buildingStampingVoteWindow, height)
+	return scVotes
+}
+
+func (chain *StampingChain) findEnoughHeights(threshold uint64) (uint64, []uint64) {
+	chain.mutexBuilding.RLock()
+	defer chain.mutexBuilding.RUnlock()
+
 	maxEnoughVotesHeight := uint64(0)
 
 	var enoughHeights []uint64
 	now := time.Now().Unix()
-	for height, votes := range window {
+	for height, votes := range chain.buildingStampingVoteWindow {
 		log.Trace("check vote enough", "height", height, "vote", votes)
 		if votes.weight >= threshold && (now-votes.ts >= int64(stampingVoteCandidateTerm)) {
 			if maxEnoughVotesHeight < height {
@@ -1062,7 +1104,7 @@ func findEnoughHeights(window MapStampingVotes, threshold uint64) (uint64, []uin
 
 		}
 	}
-	for height, votes := range window {
+	for height, votes := range chain.buildingStampingVoteWindow {
 		if votes.weight >= threshold {
 			if height <= maxEnoughVotesHeight {
 				enoughHeights = append(enoughHeights, height)
@@ -1073,27 +1115,11 @@ func findEnoughHeights(window MapStampingVotes, threshold uint64) (uint64, []uin
 	return maxEnoughVotesHeight, enoughHeights
 }
 
-func (chain *StampingChain) checkBelowCEnoughVotesAndCount() {
-	chain.mutexChain.Lock()
-	defer chain.mutexChain.Unlock()
-
-	maxEnoughVotesHeight, enoughHeights := findEnoughHeights(chain.belowStampingVoteWindow, params.CommitteeConfigv1.StampingCommitteeThreshold)
-
-	for height := range chain.belowStampingVoteWindow {
-		if height <= maxEnoughVotesHeight || ((height > belowCHeight) && (height <= chain.stampingStatus.Candidate-100)) {
-			delete(chain.belowStampingVoteWindow, height)
-		}
-	}
-
-	log.Trace("check below C enough done", "max height", maxEnoughVotesHeight, "enough", len(enoughHeights))
-}
-
 func (chain *StampingChain) addStampingVoteAndCount(vote *types.StampingVote, threshold uint64) (added, enough bool, err error) {
 	chain.mutexChain.Lock()
 	defer chain.mutexChain.Unlock()
 
 	if vote.Height <= chain.stampingStatus.Candidate {
-		chain.processStampingVoteWindow(vote, chain.belowStampingVoteWindow, threshold)
 		return false, false, fmt.Errorf("vote.height too low, height:%d, C:%d\n",
 			vote.Height, chain.stampingStatus.Candidate)
 	}
@@ -1103,21 +1129,34 @@ func (chain *StampingChain) addStampingVoteAndCount(vote *types.StampingVote, th
 			vote.Height, chain.stampingStatus.Height)
 	}
 
-	added, enough, err = chain.processStampingVoteWindow(vote, chain.buildingStampingVoteWindow, threshold)
+	added, enough, err = chain.processStampingVote(vote, threshold)
 
 	if added || enough {
 		log.Info("addStampingVoteAndCount OK", "Added", added, "Enough", enough,
-			"Weight", fmt.Sprintf("(%d/%d)", chain.buildingStampingVoteWindow[vote.Height].weight, threshold), "vote", vote)
+			"Weight", fmt.Sprintf("(%d/%d)", chain.getBuildingStampingVotesWeight(vote.Height), threshold), "vote", vote)
 	}
 
 	return
 }
 
-func (chain *StampingChain) processStampingVoteWindow(vote *types.StampingVote, window MapStampingVotes, threshold uint64) (added, enough bool, err error) {
-	votes, ok := window[vote.Height]
+func (chain *StampingChain) getBuildingStampingVotesWeight(height uint64) uint64 {
+	chain.mutexBuilding.RLock()
+	defer chain.mutexBuilding.RUnlock()
+
+	if v, ok := chain.buildingStampingVoteWindow[height]; ok {
+		return v.weight
+	}
+	return 0
+}
+
+func (chain *StampingChain) processStampingVote(vote *types.StampingVote, threshold uint64) (added, enough bool, err error) {
+	chain.mutexBuilding.Lock()
+	defer chain.mutexBuilding.Unlock()
+
+	votes, ok := chain.buildingStampingVoteWindow[vote.Height]
 	if !ok {
 		votes = NewStampingVotes()
-		window[vote.Height] = votes
+		chain.buildingStampingVoteWindow[vote.Height] = votes
 	}
 
 	if votes.hasVote(vote.Address) {
@@ -1147,7 +1186,7 @@ func (chain *StampingChain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (
 	for height := begin; height <= end; height++ {
 		sc := chain.StampingCertificate(height)
 		if sc == nil {
-			log.Error("sc not exist", "height", height)
+			//log.Error("sc not exist", "height", height)
 			continue
 		}
 
@@ -1168,26 +1207,35 @@ func (chain *StampingChain) pickFrozenSCVoteToPeer(begin, end uint64, p *peer) (
 	return
 }
 
-func (chain *StampingChain) PickBuildingSCVoteToPeer(begin, end uint64, p *peer) (sent bool) {
-	chain.mutexChain.RLock()
-	defer chain.mutexChain.RUnlock()
+func (chain *StampingChain) pickBuildingSCVote(begin, end uint64, p *peer) *types.StampingVote {
+	chain.mutexBuilding.RLock()
+	defer chain.mutexBuilding.RUnlock()
 
-	var startLog, endLog uint64
 	for height := begin; height <= end; height++ {
 		votes := chain.buildingStampingVoteWindow[height]
-		if err := p.PickBuildingAndSend(votes); err == nil {
-			sent = true
-
-			p.Log().Info("gossipVoteData vote between C and H", "status", chain.stampingStatus,
-				"send", height, "not send", fmt.Sprintf("%d-%d", startLog, endLog))
-			break
-		} else {
-			if startLog == 0 {
-				startLog = height
-			}
-			endLog = height
-			//p.Log().Info("gossipVoteData vote between C and H, err,", "chain", chain.name, "status", chain.StatusString(), "send", height, "err", err)
+		if votes == nil || len(votes.votes) == 0 {
+			continue
 		}
+
+		for _, vote := range votes.votes {
+			if !p.counter.HasVote(vote) {
+				return vote
+			}
+		}
+	}
+
+	return nil
+}
+
+func (chain *StampingChain) PickBuildingSCVoteToPeer(begin, end uint64, p *peer) (sent bool) {
+	var startLog, endLog uint64
+
+	vote := chain.pickBuildingSCVote(begin, end, p)
+	if err := p.PickBuildingAndSend(vote); err == nil {
+		sent = true
+
+		p.Log().Info("gossipVoteData vote between C and H", "status", chain.stampingStatus,
+			"send", vote.Height, "not send", fmt.Sprintf("%d-%d", startLog, endLog))
 	}
 
 	return
@@ -1230,7 +1278,8 @@ func (chain *StampingChain) Sync() {
 }
 
 func (chain *StampingChain) syncWithPeer() error {
-	peer := chain.pm.GetBestPeer()
+	chainStatus := chain.ChainStatus()
+	peer := chain.pm.GetBestPeer(chainStatus)
 	if peer == nil {
 		return nil
 	}
@@ -1242,63 +1291,114 @@ func (chain *StampingChain) syncWithPeer() error {
 	return err
 }
 
-func (chain *StampingChain) sync(peer *peer) error {
-	chain.mutexChain.Lock()
-
-	// make BaseHeader exist as the genesis block header for stamping certificate
-	if !chain.hasHeader(chain.config.Stamping.BaseHeight) {
-		if common.EmptyHash(chain.config.Stamping.BaseHash) {
-			// sync [1, Base] to get BaseHeader
-			err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, 1, chain.config.Stamping.BaseHeight)
-			if err != nil {
-				return fmt.Errorf("forward synchronize [1, Base] failed: %v", err)
-			}
-		} else {
-			// TODO: 也许应该将BaseHeader和BaseHash一起写到代码里面来，就不用下载了
-			base := peer.Header(chain.config.Stamping.BaseHeight)
-			if err := chain.addHeaderWithHash(base, chain.config.Stamping.BaseHash); err != nil {
-				return err
-			}
-		}
+func (chain *StampingChain) sync(p *peer) error {
+	err := chain.syncBaseHeight(p)
+	if err != nil {
+		return err
 	}
 
-	peerStatus := peer.ChainStatus()
-	// sync the first b range [Base+1, Base+B] if needed
-	baseHeight := chain.config.Stamping.BaseHeight
-	if start, end := baseHeight+1, baseHeight+chain.config.Stamping.B; chain.stampingStatus.Height < end && chain.stampingStatus.Height < peerStatus.Height {
-		err := chain.forwardSyncRangeByHeaderAndFinalCertificate(peer, start, end)
-		if err != nil {
-			return fmt.Errorf("forward synchronize the first b blocks failed: %v", err)
-		}
+	err = chain.syncBaseHeightB(p)
+	if err != nil {
+		return err
 	}
+
+	err = chain.syncLatest(p)
+	if err != nil {
+		return err
+	}
+
+	return chain.fetchLatestBlock(p)
+}
+
+func (chain *StampingChain) syncLatest(p *peer) error {
+	chainStatus := chain.ChainStatus()
+	peerStatus := p.ChainStatus()
 
 	// H+1 - peer.currentHeight
-	for begin, end := chain.stampingStatus.Candidate+1, chain.stampingStatus.Candidate+chain.config.Stamping.B; chain.stampingStatus.Height < peerStatus.Height; {
+	for begin, end := chainStatus.Candidate+1, chainStatus.Candidate+chain.config.Stamping.B; chainStatus.Height < peerStatus.Height; {
 		//fmt.Printf("process begin:[%d, %d]\n", begin, end)
-		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(peer, begin, end)
+		nextBegin, nextEnd, err := chain.syncNextBreadcrumb(chainStatus, p, begin, end)
 		if err != nil {
 			return fmt.Errorf("synchronize breadcrumb in range[%d,%d] failed: %v", begin, end, err)
 		}
 		//fmt.Printf("process end:[%d, %d]\n", nextBegin, nextEnd)
 		begin, end = nextBegin, nextEnd
+
+		chainStatus = chain.ChainStatus()
 	}
 
-	if chain.stampingStatus.Height <= 1 || chain.stampingStatus.Height < peerStatus.Height {
-		log.Warn("dont reach latest status, return", "chain", chain.stampingStatus, "peer", peerStatus.String())
-		return fmt.Errorf("donot reach latest status, chain:%s, peer:%s", chain.stampingStatus.String(), peerStatus.String())
+	return nil
+}
+
+func (chain *StampingChain) syncBaseHeightB(p *peer) error {
+	chainStatus := chain.ChainStatus()
+	if chainStatus.Height >= chain.config.Stamping.HeightB() {
+		return nil
 	}
 
-	latest := chain.header(chain.stampingStatus.Height)
+	var doneHeight uint64
+	var err error
+
+	// sync the first b range [Base+1, Base+B] if needed
+	baseHeight := chain.config.Stamping.BaseHeight
+	if start, end := baseHeight+1, baseHeight+chain.config.Stamping.B; chainStatus.Height < end {
+		doneHeight, err = chain.forwardSyncRangeByHeaderAndFinalCertificate(p, start, end)
+		if err != nil {
+			err = fmt.Errorf("forward synchronize the first b blocks failed: %v", err)
+		}
+	}
+
+	status := chain.UpdateStatusHeight(doneHeight)
+	chain.writeStatusToDb(status)
+	chain.broadcastStampingStatusMsg(status)
+
+	return nil
+}
+
+func (chain *StampingChain) syncBaseHeight(p *peer) error {
+	chainStatus := chain.ChainStatus()
+	if chainStatus.Height >= chain.config.Stamping.BaseHeight {
+		return nil
+	}
+
+	var doneHeight uint64 = chain.config.Stamping.BaseHeight
+	var err error
+
+	// make BaseHeader exist as the genesis block header for stamping certificate
+	if !chain.HasHeader(chain.config.Stamping.BaseHeight) {
+		if common.EmptyHash(chain.config.Stamping.BaseHash) {
+			// sync [1, Base] to get BaseHeader
+			doneHeight, err = chain.forwardSyncRangeByHeaderAndFinalCertificate(p, chainStatus.Height+1, chain.config.Stamping.BaseHeight)
+			if err != nil {
+				err = fmt.Errorf("forward synchronize [1, Base] failed: %v", err)
+			}
+		} else {
+			// TODO: 也许应该将BaseHeader和BaseHash一起写到代码里面来，就不用下载了
+			base := p.Header(chain.config.Stamping.BaseHeight)
+			err = chain.addHeaderWithHash(base, chain.config.Stamping.BaseHash)
+		}
+	}
+
+	status := chain.UpdateStatusHeight(doneHeight)
+	chain.writeStatusToDb(status)
+	chain.broadcastStampingStatusMsg(status)
+
+	return nil
+}
+
+func (chain *StampingChain) fetchLatestBlock(p *peer) error {
+	chainStatus := chain.ChainStatus()
+	peerStatus := p.ChainStatus()
+
+	if chainStatus.Height <= 1 || chainStatus.Height < peerStatus.Height {
+		log.Warn("dont reach latest status, return", "chain", chainStatus.String(), "peer", peerStatus.String())
+		return fmt.Errorf("donot reach latest status, chain:%s, peer:%s", chainStatus.String(), peerStatus.String())
+	}
+	latest := chain.header(chainStatus.Height)
 	if latest == nil {
 		return fmt.Errorf("laster header not exist, height:%d", chain.stampingStatus.Height)
 	}
 
-	chain.mutexChain.Unlock()
-
-	return chain.fetchLatestBlock(peer, latest)
-}
-
-func (chain *StampingChain) fetchLatestBlock(p *peer, latest *types.Header) error {
 	var block *blockData
 	var err error
 	if !chain.eth.BlockChain().HasFastBlock(latest.Hash(), latest.NumberU64()) {
