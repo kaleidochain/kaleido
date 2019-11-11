@@ -297,8 +297,8 @@ func (pm *ProtocolManager) gossipVotesLoop(p *peer) {
 	}
 }
 
-func (pm *ProtocolManager) GetBestPeer() *peer {
-	return pm.peers.GetBestPeer()
+func (pm *ProtocolManager) GetBestPeer(status types.StampingStatus) *peer {
+	return pm.peers.GetBestPeer(pm.config.Stamping, status)
 }
 
 func (pm *ProtocolManager) GetArchivePeer() *peer {
