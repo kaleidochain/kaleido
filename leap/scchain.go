@@ -801,6 +801,10 @@ func (chain *StampingChain) syncNextBreadcrumb(chainStatus types.StampingStatus,
 	}
 
 	if bc.StampingHeader != nil {
+		realStatus := chain.ChainStatus()
+		if bc.StampingHeader.NumberU64() <= realStatus.Candidate {
+			return 0, 0, fmt.Errorf("ignore bc, bc:%s, chain:%s", bc.String(), realStatus.String())
+		}
 		if proofHeader := chain.header(bc.StampingHeader.Number.Uint64() - chain.config.Stamping.B); proofHeader == nil {
 			tailLength := chain.getTailLength(begin)
 			neededBegin := bc.StampingHeader.Number.Uint64() - chain.config.Stamping.B
