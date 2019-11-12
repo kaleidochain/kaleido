@@ -1302,7 +1302,7 @@ func (chain *StampingChain) sync(p *peer) error {
 		return err
 	}
 
-	err = chain.syncLatest(p)
+	err = chain.syncToLatest(p)
 	if err != nil {
 		return err
 	}
@@ -1310,7 +1310,7 @@ func (chain *StampingChain) sync(p *peer) error {
 	return chain.fetchLatestBlock(p)
 }
 
-func (chain *StampingChain) syncLatest(p *peer) error {
+func (chain *StampingChain) syncToLatest(p *peer) error {
 	chainStatus := chain.ChainStatus()
 	peerStatus := p.ChainStatus()
 
