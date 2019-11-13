@@ -106,8 +106,8 @@ func (chain *StampingChain) processStatusAndChainConsistence() {
 	if status == nil {
 		if chain.eth.BlockChain().CurrentBlock().NumberU64() < chain.config.Stamping.BaseHeight {
 			log.Error("cant read stamping status, check stamping chain status")
-			panic(fmt.Sprintf("BaseHeight > CurrentHeight, BaseHeight:%d, CurrentHeight:%d\n",
-				chain.config.Stamping.BaseHeight, chain.eth.BlockChain().CurrentBlock().NumberU64()))
+			/*panic(fmt.Sprintf("BaseHeight > CurrentHeight, BaseHeight:%d, CurrentHeight:%d\n",
+			chain.config.Stamping.BaseHeight, chain.eth.BlockChain().CurrentBlock().NumberU64()))*/
 		}
 		chain.stampingStatus = types.StampingStatus{
 			Height:    chain.eth.BlockChain().CurrentBlock().NumberU64(),
@@ -233,17 +233,6 @@ func (chain *StampingChain) writeNonCertificateHeader(header *types.Header) erro
 }
 
 func (chain *StampingChain) addForwardBlock(headers []*types.Header) (uint64, error) {
-	/*height := header.NumberU64()
-	if height <= chain.stampingStatus.Height {
-		log.Warn("block lower than stamping status", "height", height, "status", chain.stampingStatus.String())
-		return errLowerThanHeight
-	}
-	if h := chain.header(height); h != nil {
-		log.Warn("block exist", "height", height)
-		//return errExists
-	}
-	*/
-
 	header := headers[0]
 	parent := chain.header(header.NumberU64() - 1)
 	if parent == nil {
@@ -256,7 +245,7 @@ func (chain *StampingChain) addForwardBlock(headers []*types.Header) (uint64, er
 	for _, header := range headers {
 		stateDb, err = algorand.GetStateDbFromProof(header.Certificate.TrieProof, parent.Root)
 		if err != nil {
-			log.Warn("statedb error", "height", header.NumberU64(), "err", err)
+			log.Warn("statedb error", "height", parent.NumberU64(), "err", err)
 			break
 		}
 		if err = algorand.DoVerifySeal(chain.config, stateDb, header, parent); err != nil {
@@ -634,9 +623,9 @@ func (chain *StampingChain) forwardSyncRangeByHeaderAndFinalCertificate(p *peer,
 	doneHeight := uint64(0)
 
 	for height <= stop {
-		stepStop := height + MaxHeaderFetchOnce
+		stepStop := height + MaxHeaderFetchOnce - 1
 		if stepStop > stop {
-			stepStop = height + MaxHeaderFetchOnce - stop
+			stepStop = stop
 			needBreak = true
 		}
 
@@ -743,26 +732,20 @@ func (chain *StampingChain) getNextBreadcrumb(begin, end uint64, status types.St
 func (chain *StampingChain) getHeaders(begin, end uint64, forward, includeFc bool) (headers []*types.Header) {
 	if forward {
 		for height := begin; height <= end; height++ {
-			header := chain.header(height)
+			header := chain.getHeader(height, includeFc)
 			if header == nil {
 				headers = nil
 				return
-			}
-			if !includeFc {
-				header.Certificate.TrieProof = nil
 			}
 
 			headers = append(headers, header)
 		}
 	} else {
 		for height := end; height >= begin; height-- {
-			header := chain.header(height)
+			header := chain.getHeader(height, includeFc)
 			if header == nil {
 				headers = nil
 				return
-			}
-			if !includeFc {
-				header.Certificate.TrieProof = nil
 			}
 
 			headers = append(headers, header)
@@ -770,6 +753,25 @@ func (chain *StampingChain) getHeaders(begin, end uint64, forward, includeFc boo
 	}
 
 	return
+}
+
+func (chain *StampingChain) getHeader(height uint64, includeFc bool) *types.Header {
+	header := chain.header(height)
+	if header == nil {
+		return nil
+	}
+	if !includeFc {
+		header.Certificate.TrieProof = nil
+	}
+	if includeFc && len(header.Certificate.TrieProof) == 0 {
+		proof, err := chain.eth.BlockChain().BuildProof(header.Certificate)
+		if err != nil {
+			return nil
+		}
+		header.Certificate.TrieProof = proof
+	}
+
+	return header
 }
 
 type breadcrumb struct {
@@ -1356,7 +1358,7 @@ func (chain *StampingChain) syncBaseHeightB(p *peer) error {
 	chain.writeStatusToDb(status)
 	chain.broadcastStampingStatusMsg(status)
 
-	return nil
+	return err
 }
 
 func (chain *StampingChain) syncBaseHeight(p *peer) error {
@@ -1403,21 +1405,9 @@ func (chain *StampingChain) fetchLatestBlock(p *peer) error {
 		return fmt.Errorf("laster header not exist, height:%d", chain.stampingStatus.Height)
 	}
 
-	var block *blockData
-	var err error
-	if !chain.eth.BlockChain().HasFastBlock(latest.Hash(), latest.NumberU64()) {
-		block, err = p.GetBlockAndReceipts(latest.Hash())
-		if err != nil {
-			p.Log().Error("GetBlockAndReceipts failed", "chain", chain.StatusString())
-			return err
-		}
-	}
-
-	if !chain.eth.BlockChain().HasState(latest.Root) {
-		if err := chain.downloader.FetchNodeData(latest.Root); err != nil {
-			log.Error("fetch state failed", "height", latest.NumberU64(), "err", err)
-			return err
-		}
+	block, e := chain.getPivotBlock(latest, p)
+	if e != nil {
+		return e
 	}
 
 	if block != nil {
@@ -1426,6 +1416,26 @@ func (chain *StampingChain) fetchLatestBlock(p *peer) error {
 	}
 
 	return nil
+}
+
+func (chain *StampingChain) getPivotBlock(header *types.Header, p *peer) (*blockData, error) {
+	var block *blockData
+	var err error
+	if !chain.eth.BlockChain().HasFastBlock(header.Hash(), header.NumberU64()) {
+		block, err = p.GetBlockAndReceipts(header.Hash())
+		if err != nil {
+			p.Log().Error("GetBlockAndReceipts failed", "chain", chain.StatusString())
+			return nil, err
+		}
+	}
+	if !chain.eth.BlockChain().HasState(header.Root) {
+		if err := chain.downloader.FetchNodeData(header.Root); err != nil {
+			log.Error("fetch state failed", "height", header.NumberU64(), "err", err)
+			return nil, err
+		}
+	}
+	log.Trace("chain has statedb", "height", header.NumberU64(), "root", header.Root.TerminalString())
+	return block, nil
 }
 
 func (chain *StampingChain) commitPivotBlock(block *types.Block, receipts types.Receipts) error {
