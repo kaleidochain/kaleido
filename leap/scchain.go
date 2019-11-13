@@ -1361,14 +1361,13 @@ func (chain *StampingChain) syncBaseHeightB(p *peer) error {
 	return err
 }
 
-func (chain *StampingChain) syncBaseHeight(p *peer) error {
+func (chain *StampingChain) syncBaseHeight(p *peer) (err error) {
 	chainStatus := chain.ChainStatus()
 	if chainStatus.Height >= chain.config.Stamping.BaseHeight {
 		return nil
 	}
 
 	var doneHeight uint64 = chain.config.Stamping.BaseHeight
-	var err error
 
 	// make BaseHeader exist as the genesis block header for stamping certificate
 	if !chain.HasHeader(chain.config.Stamping.BaseHeight) {
@@ -1377,11 +1376,19 @@ func (chain *StampingChain) syncBaseHeight(p *peer) error {
 			doneHeight, err = chain.forwardSyncRangeByHeaderAndFinalCertificate(p, chainStatus.Height+1, chain.config.Stamping.BaseHeight)
 			if err != nil {
 				err = fmt.Errorf("forward synchronize [1, Base] failed: %v", err)
+				return
 			}
 		} else {
 			// TODO: 也许应该将BaseHeader和BaseHash一起写到代码里面来，就不用下载了
 			base := p.Header(chain.config.Stamping.BaseHeight)
+			if base == nil {
+				err = fmt.Errorf("get BaseHeight header failed. BaseHeight:%d", chain.config.Stamping.BaseHeight)
+				return
+			}
 			err = chain.addHeaderWithHash(base, chain.config.Stamping.BaseHash)
+			if err != nil {
+				return
+			}
 		}
 	}
 
