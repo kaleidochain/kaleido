@@ -102,9 +102,6 @@ func LessThanByProof(proofA, proofB *ed25519.VrfProof, jA, jB uint64) bool {
 }
 
 func LessThanByProofInt(proofA, proofB *ed25519.VrfProof, jA, jB uint64) int {
-	if jA == 0 && jB == 0 {
-		panic(fmt.Sprintf("jA == 0 && jB == 0, it is impossible"))
-	}
 	if jA == 0 {
 		return 1
 	} else if jB == 0 {
