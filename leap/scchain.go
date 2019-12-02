@@ -110,14 +110,15 @@ func (chain *StampingChain) processStatusAndChainConsistence() {
 			chain.config.Stamping.BaseHeight, chain.eth.BlockChain().CurrentBlock().NumberU64()))*/
 		}
 		chain.stampingStatus = types.StampingStatus{
-			Height:    chain.eth.BlockChain().CurrentBlock().NumberU64(),
 			Candidate: chain.config.Stamping.HeightB(),
 			Proof:     chain.config.Stamping.HeightB(),
 			Fz:        chain.config.Stamping.HeightB(),
 		}
 		return
 	}
+	status.Height = chain.eth.BlockChain().CurrentBlock().NumberU64()
 	chain.stampingStatus = *status
+
 	log.Trace("read stamping", "stamping status", status.String())
 
 	futureStampingStatus := chain.eth.BlockChain().GetFutureStampingStatus()
