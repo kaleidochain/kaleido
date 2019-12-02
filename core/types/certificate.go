@@ -157,7 +157,7 @@ func NewCredentialFromCredentialStorage(storage *CredentialStorage, height uint6
 }
 
 func (c *Credential) LessThan(other *Credential) bool {
-	return LessThanByProof(&c.Proof, &other.Proof)
+	return LessThanByProof(&c.Proof, &other.Proof, c.Weight, other.Weight)
 }
 
 func (c *Credential) String() string {
