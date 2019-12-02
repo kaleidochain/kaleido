@@ -407,14 +407,14 @@ func (p *peer) SetHasProposalValue(data *core.HasProposalData) {
 
 func (p *peer) setHasProposalValueNoLock(data *core.HasProposalData) {
 	leader := p.leaderProposalValue[data.Round]
-	if leader == nil || types.LessThanByProof(&data.Proof, &leader.Proof) {
+	if leader == nil || types.LessThanByProof(&data.Proof, &leader.Proof, data.Weight, leader.Weight) {
 		p.leaderProposalValue[data.Round] = data
 	}
 }
 
 func (p *peer) hasProposalValueNoLock(data *core.ProposalLeaderData) bool {
 	leader := p.leaderProposalValue[data.Round]
-	if leader == nil || types.LessThanByProof(&data.Proof, &leader.Proof) {
+	if leader == nil || types.LessThanByProof(&data.Proof, &leader.Proof, data.Weight, leader.Weight) {
 		return false
 	}
 	return true

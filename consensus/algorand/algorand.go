@@ -319,7 +319,7 @@ func DoVerifySeal(config *params.ChainConfig, stateDb *state.StateDB, header, pa
 		return fmt.Errorf("duplicate Address(%d) in certificate", numVotes-numAddrs)
 	}
 
-	threshold, _ := core.GetCommitteeNumber(height, types.RoundStep3Certifying)
+	threshold, _ := types.GetCommitteeNumber(height, types.RoundStep3Certifying)
 	if weightSum < threshold {
 		return fmt.Errorf("weightSum(%d) not reach threshold(%d)",
 			weightSum, threshold)

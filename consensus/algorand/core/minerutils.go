@@ -22,13 +22,12 @@ import (
 	"math/big"
 
 	"github.com/kaleidochain/kaleido/common/hexutil"
-
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/kaleidochain/kaleido/core/state"
 	"github.com/kaleidochain/kaleido/core/types"
 
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/kaleidochain/kaleido/common"
+	"github.com/kaleidochain/kaleido/core/state"
 	"github.com/kaleidochain/kaleido/crypto/ed25519"
 	"github.com/kaleidochain/kaleido/params"
 )

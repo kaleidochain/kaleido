@@ -1103,9 +1103,11 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 				"currentBlock", currentBlock.Hash().TerminalString())
 			credential := block.Certificate().Proposal.Credential
 			currentCredential := currentBlock.Certificate().Proposal.Credential
-			if credential.LessThan(&currentCredential) {
+			credentialWeight := GetSortitionWeight(bc.chainConfig.Algorand, bc, block.NumberU64(), credential.Proof, credential.Address)
+			currentCredentialWeight := GetSortitionWeight(bc.chainConfig.Algorand, bc, currentBlock.NumberU64(), currentCredential.Proof, currentCredential.Address)
+			if cmp := types.LessThanByProofInt(&credential.Proof, &currentCredential.Proof, credentialWeight, currentCredentialWeight); cmp < 0 {
 				reorg = true
-			} else if credential.EqualTo(&currentCredential) {
+			} else if cmp == 0 {
 				// 3. we choose the block with min hash
 				log.Warn("Fork detected! try to choose min block hash",
 					"height", block.NumberU64(),

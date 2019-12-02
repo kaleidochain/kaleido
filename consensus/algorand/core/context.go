@@ -1086,7 +1086,7 @@ func (ctx *Context) handleVote(vote *VoteData, from string) error {
 
 	ctx.broadcastMsg(HasVoteMsg, ToHasVote(vote))
 
-	threshold, _ := GetCommitteeNumber(vote.Height, vote.Step)
+	threshold, _ := types.GetCommitteeNumber(vote.Height, vote.Step)
 	added, newPotential, enough, err := ctx.counter.AddVoteAndCount(vote, threshold)
 	if err != nil {
 		return err
@@ -1300,7 +1300,7 @@ func (ctx *Context) resetParentRoundVoteSet() {
 		votes[i] = NewVoteDataFromCertVoteStorage(certVote, ctx.parent.NumberU64(), certificate.Round, certificate.Value)
 	}
 
-	threshold, _ := GetCommitteeNumber(ctx.parent.NumberU64(), types.RoundStep3Certifying)
+	threshold, _ := types.GetCommitteeNumber(ctx.parent.NumberU64(), types.RoundStep3Certifying)
 	ctx.parentRoundVoteSet = NewRoundVoteSetFromCertificates(votes, threshold)
 	ctx.parentCertVoteRound = certificate.Round
 }
@@ -1324,8 +1324,10 @@ func (ctx *Context) resetParentProposalBlockData() {
 		return
 	}
 
+	sortitionWeight := core.GetSortitionWeight(ctx.config.Algorand, ctx.eth.BlockChain(), ctx.parent.NumberU64(), ctx.parent.Proof(), ctx.parent.Proposer())
+
 	certificate := ctx.parent.Certificate()
-	ctx.parentProposalBlockData = NewProposalBlockDataFromProposalStorage(&certificate.Proposal, ctx.parent)
+	ctx.parentProposalBlockData = NewProposalBlockDataFromProposalStorage(&certificate.Proposal, ctx.parent, sortitionWeight)
 }
 
 func (ctx *Context) GetParentProposalBlockData(height uint64) *ProposalBlockData {
@@ -1366,7 +1368,7 @@ func (ctx *Context) sortition() (hash ed25519.VrfOutput256, proof ed25519.VrfPro
 // 这里有个问题，如果value对应的block找不到怎么办？是不发呢，还是只发ProposalValue
 // 这种情况在前一轮的block没收有可能收齐该block的next-vote，从而以这个值进入下一轮时会出现
 // 也许应该作废，使用自己的proposalBlock来发
-func (ctx *Context) sendProposal(value common.Hash, sortHash ed25519.VrfOutput256, proof ed25519.VrfProof) {
+func (ctx *Context) sendProposal(value common.Hash, sortHash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64) {
 	if ctx.recover {
 		log.Info("recover: sendProposal return", "HRS", ctx.HRS())
 		return
@@ -1388,6 +1390,7 @@ func (ctx *Context) sendProposal(value common.Hash, sortHash ed25519.VrfOutput25
 			Round:   ctx.Round,
 			Step:    types.RoundStep1Proposal,
 			Proof:   proof,
+			Weight:  j,
 		},
 	}
 
@@ -1743,7 +1746,7 @@ func (ctx *Context) Stake() uint64 {
 	var hashHalf ed25519.VrfOutput256
 	hashHalf[0] = 0x80
 
-	weight, _ := GetWeight(ctx.config.Algorand, ctx.currentMiner, stateDb, currentBlock.TotalBalanceOfMiners(), hashHalf)
+	weight, _ := core.GetWeight(ctx.config.Algorand, ctx.currentMiner, stateDb, currentBlock.TotalBalanceOfMiners(), hashHalf)
 
 	return weight
 }
