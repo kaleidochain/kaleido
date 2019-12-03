@@ -810,8 +810,8 @@ func (s *PublicBlockChainAPI) EstimateGas(ctx context.Context, args CallArgs) (h
 	return hexutil.Uint64(hi), nil
 }
 
-func (s *PublicBlockChainAPI) PrintLeap(ctx context.Context) (string, error) {
-	return s.b.StampingChain().Print(), nil
+func (s *PublicBlockChainAPI) PrintLeap(ctx context.Context, blockNr rpc.BlockNumber) (string, error) {
+	return s.b.StampingChain().Print(uint64(blockNr.Int64())), nil
 }
 
 // ExecutionResult groups all structured logs emitted by the EVM

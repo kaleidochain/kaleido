@@ -518,7 +518,8 @@ web3._extend({
 		new web3._extend.Method({
 			name: 'printLeap',
 			call: 'eth_printLeap',
-			params: 0
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 	],
 	properties: [

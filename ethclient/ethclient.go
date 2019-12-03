@@ -534,8 +534,8 @@ func toCallArg(msg kaleido.CallMsg) interface{} {
 }
 
 // Print StampingChain
-func (ec *Client) PrintLeap(ctx context.Context) (string, error) {
+func (ec *Client) PrintLeap(ctx context.Context, blockNumber *big.Int) (string, error) {
 	var result string
-	err := ec.c.CallContext(ctx, &result, "eth_printLeap")
+	err := ec.c.CallContext(ctx, &result, "eth_printLeap", toBlockNumArg(blockNumber))
 	return result, err
 }

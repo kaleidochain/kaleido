@@ -5434,7 +5434,8 @@ var methods = function () {
     var printLeap = new Method({
       name: 'printLeap',
       call: 'eth_printLeap',
-      params: 0
+      params: 1,
+      inputFormatter: [formatters.inputDefaultBlockNumberFormatter]
     });
 
     return [
