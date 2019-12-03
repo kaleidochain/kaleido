@@ -27,7 +27,6 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/kaleidochain/kaleido/common"
-	"github.com/kaleidochain/kaleido/core"
 	"github.com/kaleidochain/kaleido/params"
 )
 
@@ -55,6 +54,8 @@ type MinerKeyManager struct {
 
 	mutex sync.RWMutex
 	keys  map[minerKeyId]*MinerKey
+
+	quit chan struct{}
 }
 
 func NewMinerKeyManager(config *params.AlgorandConfig, dataDir string) *MinerKeyManager {
@@ -62,6 +63,7 @@ func NewMinerKeyManager(config *params.AlgorandConfig, dataDir string) *MinerKey
 		config:  config,
 		dataDir: dataDir,
 		keys:    make(map[minerKeyId]*MinerKey),
+		quit:    make(chan struct{}),
 	}
 
 	return mkm
@@ -148,20 +150,14 @@ func (mkm *MinerKeyManager) Generate(miner, coinbase common.Address, start uint6
 	return
 }
 
-func (mkm *MinerKeyManager) StartUpdateRoutine(bc *core.BlockChain) {
-	go mkm.updateRoutine(bc)
+func (mkm *MinerKeyManager) StartUpdateRoutine(chainHeadCh chan uint64) {
+	go mkm.updateRoutine(chainHeadCh)
 }
 
-func (mkm *MinerKeyManager) updateRoutine(bc *core.BlockChain) {
-	chainHeadCh := make(chan core.ChainHeadEvent, chainHeadChanSize)
-	chainHeadSub := bc.SubscribeChainHeadEvent(chainHeadCh)
-	defer chainHeadSub.Unsubscribe()
-
+func (mkm *MinerKeyManager) updateRoutine(chainHeadCh chan uint64) {
 	for {
 		select {
-		case <-chainHeadCh:
-			current := bc.CurrentBlock().NumberU64()
-
+		case current := <-chainHeadCh:
 			// unload what we don't need
 			toUnload := make([]minerKeyId, 0)
 
@@ -188,7 +184,7 @@ func (mkm *MinerKeyManager) updateRoutine(bc *core.BlockChain) {
 			}
 			mkm.mutex.Unlock()
 
-		case <-chainHeadSub.Err():
+		case <-mkm.quit:
 			log.Info("MinerKeyManager updateRoutine exited")
 			return
 		}
@@ -208,4 +204,8 @@ func (mkm *MinerKeyManager) updateMinerKeyStore(mk *MinerKey) {
 	}
 
 	_ = file.Close()
+}
+
+func (mkm *MinerKeyManager) Stop() {
+	close(mkm.quit)
 }

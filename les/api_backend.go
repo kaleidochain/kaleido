@@ -20,6 +20,8 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/kaleidochain/kaleido/leap"
+
 	"github.com/kaleidochain/kaleido/accounts"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/common/math"
@@ -170,6 +172,10 @@ func (b *LesApiBackend) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEven
 
 func (b *LesApiBackend) Downloader() *downloader.Downloader {
 	return b.eth.Downloader()
+}
+
+func (b *LesApiBackend) StampingChain() *leap.StampingChain {
+	return nil
 }
 
 func (b *LesApiBackend) ProtocolVersion() int {

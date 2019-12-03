@@ -258,19 +258,20 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 	// check proof
 	height := header.Number.Uint64()
 	certificate := header.Certificate
-	addrSet := make(map[string]struct{})
 	var stateDb *state.StateDB
 
 	if len(certificate.TrieProof) > 0 { // for full/fast sync
-		err := core2.VerifyProof(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
+		err := core2.VerifyProofForStorage(ar.config.Algorand, parent.Root, height, header.Certificate.Proposer(), certificate.CertVoteSet, certificate.TrieProof)
 		if err != nil {
 			return err
 		}
 
-		db := ethdb.NewMemDatabase()
-		certificate.TrieProof.Store(db)
-		database := state.NewDatabase(db)
-		stateDb, err = state.New(parent.Root, database)
+		stateDb, err = GetStateDbFromProof(certificate.TrieProof, parent.Root)
+		if err != nil {
+			log.Warn("statedb error",
+				"height", header.Number.Uint64(), "err", err)
+			return err
+		}
 	} else { // for light sync
 		var err error
 		stateDb, err = chain.StateAtHeader(parent)
@@ -281,12 +282,28 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 		}
 	}
 
+	return DoVerifySeal(ar.config, stateDb, header, parent)
+}
+
+func GetStateDbFromProof(proof types.NodeList, root common.Hash) (stateDb *state.StateDB, err error) {
+	db := ethdb.NewMemDatabase()
+	proof.Store(db)
+	database := state.NewDatabase(db)
+	stateDb, err = state.New(root, database)
+	return
+}
+
+func DoVerifySeal(config *params.ChainConfig, stateDb *state.StateDB, header, parent *types.Header) error {
+	height := header.Number.Uint64()
+	certificate := header.Certificate
+	addrSet := make(map[string]struct{})
+
 	weightSum := uint64(0)
 
 	for _, certVote := range certificate.CertVoteSet {
 		vote := core.NewVoteDataFromCertVoteStorage(certVote, height, certificate.Round, certificate.Value)
 
-		mv := core.GetMinerVerifier(ar.config.Algorand, stateDb, vote.Address, vote.Height)
+		mv := core.GetMinerVerifier(config.Algorand, stateDb, vote.Address, vote.Height)
 
 		err := core.VerifySignatureAndCredential(mv, vote.SignBytes(), vote.ESignValue, &vote.Credential, stateDb, parent.Seed(), parent.TotalBalanceOfMiners)
 		if err != nil {
@@ -308,7 +325,7 @@ func (ar *Algorand) VerifySeal(chain consensus.ChainReader, header, parent *type
 			weightSum, threshold)
 	}
 
-	proposerVerifier := core.GetMinerVerifier(ar.config.Algorand, stateDb, header.Certificate.Proposer(), height)
+	proposerVerifier := core.GetMinerVerifier(config.Algorand, stateDb, header.Certificate.Proposer(), height)
 
 	// verify the credential of proposer
 	hash := header.Hash()

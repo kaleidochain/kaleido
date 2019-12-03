@@ -19,6 +19,7 @@ package rawdb
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -156,10 +157,7 @@ func ReadHeader(db DatabaseReader, hash common.Hash, number uint64) *types.Heade
 
 // WriteHeader stores a block header into the database and also stores the hash-
 // to-number mapping.
-func WriteHeader(db DatabaseWriter, headerRaw *types.Header) {
-	header := types.CopyHeader(headerRaw)
-	header.Certificate.TrieProof = nil
-
+func WriteHeader(db DatabaseWriter, header *types.Header) {
 	// Write the hash -> number mapping
 	var (
 		hash    = header.Hash()
@@ -384,4 +382,106 @@ func FindCommonAncestor(db DatabaseReader, a, b *types.Header) *types.Header {
 		}
 	}
 	return a
+}
+
+func WriteStampingCertificateStorage(db DatabaseWriter, sc *types.StampingCertificateStorage) {
+	data, err := rlp.EncodeToBytes(sc)
+	if err != nil {
+		log.Crit("Failed to RLP encode sc storage", "err", err)
+	}
+	if err := db.Put(stampingCertificateKey(sc.Height), data); err != nil {
+		log.Crit("Failed to store sc storage", "err", err)
+	}
+}
+
+func ReadStampingCertificateStorage(db DatabaseReader, number uint64) *types.StampingCertificateStorage {
+	data, _ := db.Get(stampingCertificateKey(number))
+	if len(data) == 0 {
+		return nil
+	}
+
+	stampingCertificateStorage := new(types.StampingCertificateStorage)
+	if err := rlp.Decode(bytes.NewReader(data), stampingCertificateStorage); err != nil {
+		log.Error("Invalid sc storage RLP", "height", number, "err", err)
+		return nil
+	}
+	return stampingCertificateStorage
+}
+
+func DeleteStampingCertificateStorage(db DatabaseDeleter, number uint64) {
+	if err := db.Delete(stampingCertificateKey(number)); err != nil {
+		log.Crit("Failed to delete sc storage", "err", err)
+	}
+}
+
+func WriteStampingStatus(db DatabaseWriter, status *types.StampingStatus) {
+	if err := writeStampingStatus(db, stampingStatusKey, status); err != nil {
+		log.Crit("Failed to store StampingStatus", "err", err)
+	}
+}
+
+func ReadStampingStatus(db DatabaseReader) *types.StampingStatus {
+	if status, err := readStampingStatus(db, stampingStatusKey); err != nil {
+		log.Error("Failed to read StampingStatus", "err", err)
+		return nil
+	} else {
+		return status
+	}
+}
+
+func WriteFutureStampingStatus(db DatabaseWriter, status *types.StampingStatus) {
+	if err := writeStampingStatus(db, futureStampingStatusKey, status); err != nil {
+		log.Crit("Failed to store future StampingStatus", "err", err)
+	}
+}
+
+func ReadFutureStampingStatus(db DatabaseReader) *types.StampingStatus {
+	if status, err := readStampingStatus(db, futureStampingStatusKey); err != nil {
+		log.Error("Failed to read future StampingStatus", "err", err)
+		return nil
+	} else {
+		return status
+	}
+}
+
+func writeStampingStatus(db DatabaseWriter, key []byte, status *types.StampingStatus) error {
+	data, err := rlp.EncodeToBytes(status)
+	if err != nil {
+		return err
+	}
+	if err := db.Put(key, data); err != nil {
+		return err
+
+	}
+	return nil
+}
+
+func readStampingStatus(db DatabaseReader, key []byte) (*types.StampingStatus, error) {
+	data, err := db.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("failed to read StampingStatus， len(data)=0")
+	}
+
+	status := new(types.StampingStatus)
+	if err := rlp.Decode(bytes.NewReader(data), status); err != nil {
+		return nil, err
+	}
+	return status, nil
+}
+
+func WriteDeleteHeaderTag(db DatabaseWriter, number uint64) {
+	data, err := rlp.EncodeToBytes(number)
+	if err != nil {
+		log.Crit("Failed to RLP encode heigit", "err", err)
+	}
+	if err := db.Put(deleteHeaderKey(number), data); err != nil {
+		log.Crit("Failed to store sc storage", "err", err)
+	}
+}
+
+func HasDeleteHeaderTag(db DatabaseReader, number uint64) (bool, error) {
+	return db.Has(deleteHeaderKey(number))
 }

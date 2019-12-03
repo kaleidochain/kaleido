@@ -100,14 +100,15 @@ type BlockChain struct {
 	triegc *prque.Prque   // Priority queue mapping block numbers to tries to gc
 	gcproc time.Duration  // Accumulates canonical block processing for trie dumping
 
-	hc            *HeaderChain
-	rmLogsFeed    event.Feed
-	chainFeed     event.Feed
-	chainSideFeed event.Feed
-	chainHeadFeed event.Feed
-	logsFeed      event.Feed
-	scope         event.SubscriptionScope
-	genesisBlock  *types.Block
+	hc                *HeaderChain
+	rmLogsFeed        event.Feed
+	chainFeed         event.Feed
+	chainSideFeed     event.Feed
+	chainHeadFeed     event.Feed
+	logsFeed          event.Feed
+	chainStampingFeed event.Feed
+	scope             event.SubscriptionScope
+	genesisBlock      *types.Block
 
 	mu      sync.RWMutex // global mutex for locking chain operations
 	chainmu sync.RWMutex // blockchain insertion lock
@@ -628,7 +629,7 @@ func (bc *BlockChain) BuildProof(certificate *types.Certificate) (trieProof type
 	}
 
 	proof := types.NewNodeSet()
-	err = BuildProof(bc.chainConfig.Algorand, parentStatedb, parent.Root, certificate.Height, certificate.Proposal.Credential.Address, certificate.CertVoteSet, proof)
+	err = BuildProofForStorage(bc.chainConfig.Algorand, parentStatedb, parent.Root, certificate.Height, certificate.Proposal.Credential.Address, certificate.CertVoteSet, proof)
 	if err == nil {
 		trieProof = proof.NodeList()
 	}
@@ -854,6 +855,10 @@ func SetReceiptsData(config *params.ChainConfig, block *types.Block, receipts ty
 // InsertReceiptChain attempts to complete an already existing header chain with
 // transaction and receipt data.
 func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain []types.Receipts) (int, error) {
+	return bc.insertReceiptChain(blockChain, receiptChain, true)
+}
+
+func (bc *BlockChain) insertReceiptChain(blockChain types.Blocks, receiptChain []types.Receipts, checkHeader bool) (int, error) {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -880,7 +885,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 			return 0, nil
 		}
 		// Short circuit if the owner header is unknown
-		if !bc.HasHeader(block.Hash(), block.NumberU64()) {
+		if checkHeader && !bc.HasHeader(block.Hash(), block.NumberU64()) {
 			return i, fmt.Errorf("containing header #%d [%x…] unknown", block.Number(), block.Hash().Bytes()[:4])
 		}
 		// Skip if the entire data is already known
@@ -937,6 +942,11 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 	log.Info("Imported new block receipts", context...)
 
 	return 0, nil
+}
+
+func (bc *BlockChain) InsertBlockAndReceipt(block *types.Block, receipts types.Receipts) error {
+	_, err := bc.insertReceiptChain(types.Blocks{block}, []types.Receipts{receipts}, false)
+	return err
 }
 
 var lastWrite uint64
@@ -1651,6 +1661,9 @@ func (bc *BlockChain) PostChainEvents(events []interface{}, logs []*types.Log) {
 
 		case ChainSideEvent:
 			bc.chainSideFeed.Send(ev)
+
+		case ChainStampingEvent:
+			bc.chainStampingFeed.Send(ev)
 		}
 	}
 }
@@ -1722,13 +1735,6 @@ func (bc *BlockChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (i
 		return i, err
 	}
 
-	// Make sure only one thread manipulates the chain at once
-	bc.chainmu.Lock()
-	defer bc.chainmu.Unlock()
-
-	bc.wg.Add(1)
-	defer bc.wg.Done()
-
 	whFunc := func(header *types.Header) error {
 		bc.mu.Lock()
 		defer bc.mu.Unlock()
@@ -1737,7 +1743,64 @@ func (bc *BlockChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (i
 		return err
 	}
 
-	return bc.hc.InsertHeaderChain(chain, whFunc, start)
+	return bc.insertHeaderFunc(chain, whFunc, start)
+}
+
+func (bc *BlockChain) InsertStampingCertificateHeader(header *types.Header) error {
+	start := time.Now()
+
+	whFunc := func(header *types.Header) error {
+		bc.mu.Lock()
+		defer bc.mu.Unlock()
+
+		err := bc.hc.WriteStampingCertificateHeader(header)
+		return err
+	}
+
+	_, err := bc.insertHeaderFunc([]*types.Header{header}, whFunc, start)
+	return err
+}
+
+func (bc *BlockChain) InsertBackwardHeader(headers []*types.Header) error {
+	start := time.Now()
+
+	whFunc := func(header *types.Header) error {
+		bc.mu.Lock()
+		defer bc.mu.Unlock()
+
+		err := bc.hc.WriteBackwardHeader(header)
+		return err
+	}
+
+	_, err := bc.insertHeaderFunc(headers, whFunc, start)
+	return err
+}
+
+func (bc *BlockChain) insertHeaderFunc(headers []*types.Header, whFunc WhCallback, start time.Time) (int, error) {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	return bc.hc.InsertHeaderChain(headers, whFunc, start)
+}
+
+func (bc *BlockChain) WriteNonCertificateHeader(header *types.Header) error {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	{
+		bc.mu.Lock()
+		defer bc.mu.Unlock()
+
+		return bc.hc.WriteNonCertificateHeader(header)
+	}
 }
 
 // writeHeader writes a header into the local chain, given that its parent is
@@ -1849,4 +1912,74 @@ func (bc *BlockChain) SubscribeChainSideEvent(ch chan<- ChainSideEvent) event.Su
 // SubscribeLogsEvent registers a subscription of []*types.Log.
 func (bc *BlockChain) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscription {
 	return bc.scope.Track(bc.logsFeed.Subscribe(ch))
+}
+
+// SubscribeLogsEvent registers a subscription of []*types.Log.
+func (bc *BlockChain) SubscribeStampingEvent(ch chan<- ChainStampingEvent) event.Subscription {
+	return bc.scope.Track(bc.chainStampingFeed.Subscribe(ch))
+}
+
+// WriteStampingCertificate writes a sc into the local chain.
+// write  StampingCertificateStorage into db.
+func (bc *BlockChain) WriteStampingCertificate(sc *types.StampingCertificate) error {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	rawdb.WriteStampingCertificateStorage(bc.db, sc.ToStampingVoteStorage())
+	return nil
+}
+
+func (bc *BlockChain) GetStampingCertificate(number uint64) *types.StampingCertificate {
+	stampingCertificateStorage := rawdb.ReadStampingCertificateStorage(bc.db, number)
+	if stampingCertificateStorage == nil {
+		return nil
+	}
+
+	return stampingCertificateStorage.ToStampingCertificate()
+}
+
+func (bc *BlockChain) DeleteStampingCertificate(number uint64) {
+	rawdb.DeleteStampingCertificateStorage(bc.db, number)
+}
+
+func (bc *BlockChain) WriteStampingCertificateStatus(status *types.StampingStatus) {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	rawdb.WriteStampingStatus(bc.db, status)
+}
+
+func (bc *BlockChain) GetStampingStatus() *types.StampingStatus {
+	return rawdb.ReadStampingStatus(bc.db)
+}
+
+func (bc *BlockChain) WriteFutureStampingCertificateStatus(status *types.StampingStatus) {
+	// Make sure only one thread manipulates the chain at once
+	bc.chainmu.Lock()
+	defer bc.chainmu.Unlock()
+
+	bc.wg.Add(1)
+	defer bc.wg.Done()
+
+	rawdb.WriteFutureStampingStatus(bc.db, status)
+}
+
+func (bc *BlockChain) GetFutureStampingStatus() *types.StampingStatus {
+	return rawdb.ReadFutureStampingStatus(bc.db)
+}
+
+func (bc *BlockChain) WriteDeleteHeaderTag(number uint64) {
+	rawdb.WriteDeleteHeaderTag(bc.db, number)
+}
+
+func (bc *BlockChain) HeaderHasBeenDeleted(number uint64) (bool, error) {
+	return rawdb.HasDeleteHeaderTag(bc.db, number)
 }

@@ -17,8 +17,12 @@
 package core
 
 import (
+	"bytes"
 	"errors"
 	"math/big"
+
+	"github.com/kaleidochain/kaleido/common/hexutil"
+	"github.com/kaleidochain/kaleido/core/types"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -95,6 +99,56 @@ func (d *sortitionData) Bytes() []byte {
 	return data
 }
 
+type stampingSortitionData struct {
+	Miner      common.Address
+	Height     uint64
+	ParentSeed ed25519.VrfOutput256
+}
+
+func (d *stampingSortitionData) Bytes() []byte {
+	data, _ := rlp.EncodeToBytes(d)
+	return data
+}
+
+// GetWeight returns weight of a miner. It's caller's responsibility to check that addr is a miner of current block
+func GetWeight(config *params.AlgorandConfig, miner common.Address, stateDb *state.StateDB, totalBalanceOfMiners *big.Int, hash ed25519.VrfOutput256) (ownWeight, totalWeight uint64) {
+	ownBalance := state.GetBalanceWithFund(stateDb, miner)
+
+	var hashHalf ed25519.VrfOutput256
+	hashHalf[0] = 0x80
+
+	// ownWeight = TotalWeight * ownBalance / TotalBalanceOfMiners ... reminder
+	ownWeightBig := new(big.Int).Mul(config.TotalWeight, ownBalance)
+	reminder := new(big.Int)
+	ownWeightBig.QuoRem(ownWeightBig, totalBalanceOfMiners, reminder)
+
+	ownWeight = ownWeightBig.Uint64()
+
+	var delta uint64
+	if reminder.Uint64() != 0 {
+		r := bytes.Compare(hash[:], hashHalf[:])
+
+		if r < 0 {
+			delta = 0
+		} else if r > 0 {
+			delta = 1
+		} else {
+			if ownWeight%2 == 0 {
+				delta = 0
+			} else {
+				delta = 1
+			}
+		}
+	}
+	ownWeight += delta
+	totalWeight = config.TotalWeight.Uint64()
+
+	log.Trace("GetWeight", "address", miner, "totalBalance", totalBalanceOfMiners, "totalWeight", totalWeight,
+		"ownBalance", ownBalance, "ownWeight", ownWeight, "reminder", reminder, "hash", hexutil.Encode(hash[:3]))
+
+	return
+}
+
 func GetMinerVerifier(config *params.AlgorandConfig, statedb *state.StateDB, miner common.Address, height uint64) *MinerVerifier {
 	minerdb := state.NewMinerContract(config)
 	start, lifespan, coinbase, vrfVerifier, voteVerifier := minerdb.Get(statedb, height, miner)
@@ -114,7 +168,7 @@ func GetMinerVerifier(config *params.AlgorandConfig, statedb *state.StateDB, min
 	}
 }
 
-func VerifySignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature ed25519.ForwardSecureSignature, credential *Credential, stateDb *state.StateDB, parentSeed ed25519.VrfOutput256, totalBalanceOfMiners *big.Int) error {
+func VerifySignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature ed25519.ForwardSecureSignature, credential *types.Credential, stateDb *state.StateDB, parentSeed ed25519.VrfOutput256, totalBalanceOfMiners *big.Int) error {
 	err := mv.VerifySignature(credential.Height, signBytes, signature)
 	if err != nil {
 		log.Warn("verify signature failed", "err", err)
@@ -123,10 +177,48 @@ func VerifySignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature
 
 	err, choosedWeight := mv.VerifySortition(credential.Height, credential.Round, credential.Step, credential.Proof, parentSeed, stateDb, totalBalanceOfMiners)
 	if err != nil {
-		log.Warn("verify credential failed", "err", err, "credential", credential)
+		log.Warn("verify credential failed", "credential", credential, "err", err)
 		return err
 	}
 
 	credential.Weight = choosedWeight
 	return nil
+}
+
+func VerifyStampingSignatureAndCredential(mv *MinerVerifier, signBytes []byte, signature ed25519.ForwardSecureSignature, credential *types.Credential, stateDb *state.StateDB, parentSeed ed25519.VrfOutput256, totalBalanceOfMiners *big.Int) error {
+	err := mv.VerifySignature(credential.Height, signBytes, signature)
+	if err != nil {
+		log.Warn("verify signature failed", "err", err)
+		return err
+	}
+
+	err, choosedWeight := mv.VerifyStampingSortition(credential.Height, credential.Proof, parentSeed, stateDb, totalBalanceOfMiners)
+	if err != nil {
+		log.Warn("verify credential failed", "credential", credential, "err", err)
+		return err
+	}
+
+	credential.Weight = choosedWeight
+	return nil
+}
+
+func GetCommitteeNumber(height uint64, step uint32) (uint64, uint64) {
+	const proposerThreshold = 1
+	if step == types.RoundStep1Proposal {
+		return proposerThreshold, params.CommitteeConfigv1.NumProposer
+	}
+
+	if step == types.RoundStep2Filtering {
+		return params.CommitteeConfigv1.SoftCommitteeThreshold, params.CommitteeConfigv1.SoftCommitteeSize
+	}
+
+	if step == types.RoundStep3Certifying {
+		return params.CommitteeConfigv1.CertCommitteeThreshold, params.CommitteeConfigv1.CertCommitteeSize
+	}
+
+	return params.CommitteeConfigv1.NextCommitteeThreshold, params.CommitteeConfigv1.NextCommitteeSize
+}
+
+func GetStampingCommitteeNumber(height uint64) (uint64, uint64) {
+	return params.CommitteeConfigv1.StampingCommitteeThreshold, params.CommitteeConfigv1.StampingCommitteeSize
 }

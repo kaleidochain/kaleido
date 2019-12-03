@@ -320,8 +320,8 @@ func (pm *ProtocolManager) gossipVotesLoop(p *peer) {
 			if peerHeight+1 == selfHeight {
 				roundVoteSet, round = pm.getParentRoundVoteSet(peerHeight)
 			} else {
-				if certVotes, certVoteRound := pm.getCertVotesByHeight(peerHeight); certVotes != nil {
-					threshold, _ := types.GetCommitteeNumber(peerHeight, types.RoundStep3Certifying)
+				if certVotes, certVoteRound := pm.getCertVotesByHeight(peerHeight); certVotes != nil && len(certVotes) > 0 {
+					threshold, _ := core.GetCommitteeNumber(peerHeight, types.RoundStep3Certifying)
 					roundVoteSet = core.NewRoundVoteSetFromCertificates(certVotes, threshold)
 					round = certVoteRound
 				}

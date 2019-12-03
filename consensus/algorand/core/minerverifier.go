@@ -22,8 +22,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/kaleidochain/kaleido/core/types"
-
 	"github.com/kaleidochain/kaleido/core"
 
 	"github.com/kaleidochain/kaleido/sortition"
@@ -80,16 +78,29 @@ func (mv *MinerVerifier) VerifySeed(height uint64, parentSeed ed25519.VrfOutput2
 }
 
 func (mv *MinerVerifier) VerifySortition(height uint64, round, step uint32, proof ed25519.VrfProof, parentSeed ed25519.VrfOutput256, parentState *state.StateDB, totalBalanceOfMiners *big.Int) (err error, j uint64) {
+	data := sortitionData{
+		mv.miner, height, round, step, parentSeed,
+	}
+	threshold, totalNumber := GetCommitteeNumber(height, step)
+	return mv.verifySortition(height, data.Bytes(), proof, parentSeed, parentState, totalBalanceOfMiners, threshold, totalNumber)
+}
+
+func (mv *MinerVerifier) VerifyStampingSortition(height uint64, proof ed25519.VrfProof, parentSeed ed25519.VrfOutput256, parentState *state.StateDB, totalBalanceOfMiners *big.Int) (err error, j uint64) {
+	data := stampingSortitionData{
+		mv.miner, height, parentSeed,
+	}
+	threshold, totalNumber := GetStampingCommitteeNumber(height)
+	return mv.verifySortition(height, data.Bytes(), proof, parentSeed, parentState, totalBalanceOfMiners, threshold, totalNumber)
+}
+
+func (mv *MinerVerifier) verifySortition(height uint64, data []byte, proof ed25519.VrfProof, parentSeed ed25519.VrfOutput256,
+	parentState *state.StateDB, totalBalanceOfMiners *big.Int, threshold, totalNumber uint64) (err error, j uint64) {
 	if !mv.Validate(height) {
 		err = errors.New("miner is not registered")
 		return
 	}
 
-	data := sortitionData{
-		mv.miner, height, round, step, parentSeed,
-	}
-
-	ok, hash := ed25519.VrfVerify256(&mv.vrfVerifier, &proof, data.Bytes())
+	ok, hash := ed25519.VrfVerify256(&mv.vrfVerifier, &proof, data)
 	if !ok {
 		err = errors.New("invalid vrf proof")
 		return
@@ -97,9 +108,7 @@ func (mv *MinerVerifier) VerifySortition(height uint64, round, step uint32, proo
 
 	ownWeight, totalWeight := core.GetWeight(mv.config, mv.miner, parentState, totalBalanceOfMiners, hash)
 
-	threshold, size := types.GetCommitteeNumber(height, step)
-	j = sortition.Choose(hash, ownWeight, threshold, size, totalWeight)
-
+	j = sortition.Choose(hash, ownWeight, threshold, totalNumber, totalWeight)
 	if j == 0 {
 		err = errors.New("sortition weight is 0")
 	}

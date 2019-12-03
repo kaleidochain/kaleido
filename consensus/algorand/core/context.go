@@ -215,6 +215,7 @@ type Context struct {
 
 	snappingChainHead chan core.ChainHeadEvent
 	getBlockReqCh     chan *getBlockReq
+	chainHeadCh       chan uint64
 
 	journal *VoteJournal
 	recover bool
@@ -237,11 +238,12 @@ func NewContext(eth Backend, broadcaster Broadcaster, config *params.ChainConfig
 		mkm:               NewMinerKeyManager(config.Algorand, algorandDataDir),
 		snappingChainHead: make(chan core.ChainHeadEvent),
 		getBlockReqCh:     make(chan *getBlockReq),
+		chainHeadCh:       make(chan uint64, chainHeadChanSize),
 
 		recover: true,
 	}
 
-	context.mkm.StartUpdateRoutine(eth.BlockChain())
+	context.mkm.StartUpdateRoutine(context.chainHeadCh)
 
 	return context
 }
@@ -635,6 +637,7 @@ func (ctx *Context) stopRunning() {
 	ctx.hsMutex.Lock()
 	defer ctx.hsMutex.Unlock()
 
+	ctx.mkm.Stop()
 	close(ctx.quit)
 	ctx.wg.Wait()
 
@@ -887,12 +890,28 @@ func (ctx *Context) receiveRoutine() {
 					log.Trace("StateMachine context receive routine snapping exit", "HRS", ctx.HRS())
 					return
 				case <-ctx.quit:
-					log.Trace("StateMachine context receive routine snapping exit", "HRS", ctx.HRS())
+					log.Trace("StateMachine context receive routine exit", "HRS", ctx.HRS())
 					return
 				}
 
 				parentHeight := currentBlock.NumberU64()
 				ctx.resetAndOpenRecoverFile(parentHeight + 1)
+
+				vote := ctx.makeStampingVote(currentBlock)
+				ctx.eth.BlockChain().PostChainEvents([]interface{}{core.ChainStampingEvent{Vote: vote}}, nil)
+				log.Debug("make new stampingvote",
+					"hash", currentBlock.Hash(),
+					"number", currentBlock.NumberU64(),
+					"HRS", ctx.HRS(),
+					"vote", vote)
+
+				// TODO: Minerkey should be deleted by notification from here.
+				select {
+				case ctx.chainHeadCh <- parentHeight:
+				case <-ctx.quit:
+					log.Trace("StateMachine context receive routine exit", "HRS", ctx.HRS())
+					return
+				}
 
 				ctx.gotoState(&StateNewHeight{chainHeadBlock: currentBlock})
 			}
@@ -1365,7 +1384,7 @@ func (ctx *Context) sendProposal(value common.Hash, sortHash ed25519.VrfOutput25
 
 	proposalLeader := &ProposalLeaderData{
 		Value: value,
-		Credential: Credential{
+		Credential: types.Credential{
 			Address: proposer,
 			Height:  ctx.Height,
 			Round:   ctx.Round,
@@ -1421,7 +1440,7 @@ func (ctx *Context) sendVote(voteType uint32, value common.Hash, sortHash ed2551
 
 	vote := &VoteData{
 		Value: value,
-		Credential: Credential{
+		Credential: types.Credential{
 			Address: ctx.currentMiner,
 			Height:  ctx.Height,
 			Round:   ctx.Round,
@@ -1730,4 +1749,79 @@ func (ctx *Context) Stake() uint64 {
 	weight, _ := core.GetWeight(ctx.config.Algorand, ctx.currentMiner, stateDb, currentBlock.TotalBalanceOfMiners(), hashHalf)
 
 	return weight
+}
+
+func (ctx *Context) makeStampingVote(block *types.Block) *types.StampingVote {
+	height := block.NumberU64()
+	if height <= ctx.config.Stamping.HeightB() {
+		log.Warn("Height < B", "Height", height, "config.HeightB", ctx.config.Stamping.HeightB())
+		return nil
+	}
+
+	parentHeight := height - ctx.config.Stamping.B
+	parent := ctx.eth.BlockChain().GetHeaderByNumber(parentHeight)
+	parentStatedb, err := ctx.eth.BlockChain().StateAtHeader(parent)
+	if err != nil {
+		log.Warn("StateAtHeader failed(stamping)", "err", err, "Height", parentHeight, "miner", ctx.currentMiner)
+		return nil
+	}
+
+	sortitionHash, sortitionProof, sortitionWeight := ctx.stampingSortition(height, parent, parentStatedb)
+	if sortitionWeight == 0 {
+		log.Trace("MakeStampingVote sortitionWeight == 0",
+			"Height", height)
+		return nil
+	}
+	_ = sortitionHash
+
+	mk, err := ctx.mkm.GetMinerKey(ctx.currentMiner, height)
+	if err != nil {
+		log.Warn("GetMinerKey failed", "err", err, "Height", height, "miner", ctx.currentMiner)
+		return nil
+	}
+
+	proof := types.NewNodeSet()
+	err = core.BuildProof(ctx.config.Algorand, parentStatedb, height, []common.Address{ctx.currentMiner}, proof)
+	if err != nil {
+		log.Error("build proof failed", "err", err)
+		panic(fmt.Sprintf("build proof failed: %v", err))
+		return nil
+	}
+
+	vote := &types.StampingVote{
+		Value: block.Hash(),
+		Credential: types.Credential{
+			Address: ctx.currentMiner,
+			Height:  height,
+			Round:   0,
+			Step:    0,
+			Proof:   sortitionProof,
+			Weight:  sortitionWeight,
+		},
+		TrieProof: proof.NodeList(),
+	}
+	sig, err := mk.Sign(vote.Height, vote.SignBytes())
+	if err != nil {
+		log.Error("sendVote: Error signing vote", "Height", height, "err", err)
+		return nil
+	}
+	vote.ESignValue = sig
+
+	return vote
+}
+
+func (ctx *Context) stampingSortition(height uint64, parent *types.Header, parentStatedb *state.StateDB) (hash ed25519.VrfOutput256, proof ed25519.VrfProof, j uint64) {
+	mk, err := ctx.mkm.GetMinerKey(ctx.currentMiner, height)
+	if err != nil {
+		log.Warn("GetMinerKey failed", "err", err, "Height", height, "miner", ctx.currentMiner)
+		return
+	}
+
+	hash, proof, j, err = mk.StampingSortition(height, parent.Seed(), parentStatedb, parent.TotalBalanceOfMiners)
+	if err != nil {
+		log.Error("Sortition failed", "err", err, "Height", height, "miner", ctx.currentMiner)
+		return
+	}
+
+	return
 }

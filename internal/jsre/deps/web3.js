@@ -5431,6 +5431,13 @@ var methods = function () {
         params: 0
     });
 
+    var printLeap = new Method({
+      name: 'printLeap',
+      call: 'eth_printLeap',
+      params: 1,
+      inputFormatter: [formatters.inputDefaultBlockNumberFormatter]
+    });
+
     return [
         getBalance,
         getStorageAt,
@@ -5454,7 +5461,8 @@ var methods = function () {
         compileLLL,
         compileSerpent,
         submitWork,
-        getWork
+        getWork,
+        printLeap
     ];
 };
 

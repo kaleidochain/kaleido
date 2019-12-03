@@ -26,6 +26,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kaleidochain/kaleido/leap"
+
 	"github.com/kaleidochain/kaleido/core/state"
 
 	"github.com/kaleidochain/kaleido/consensus/algorand"
@@ -91,6 +93,7 @@ type Ethereum struct {
 	blockchain      *core.BlockChain
 	protocolManager *ProtocolManager
 	lesServer       LesServer
+	scchain         *leap.StampingChain
 
 	// DB interfaces
 	chainDb ethdb.Database // Block chain database
@@ -214,6 +217,8 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		log.Error("invalid extra data", "extra", config.MinerExtraData)
 		return nil, err
 	}
+
+	eth.scchain = leap.NewChain(eth, eth.chainConfig, eth.engine, config.NetworkId, eth.protocolManager.GetDownloader())
 
 	eth.APIBackend = &EthAPIBackend{eth, nil}
 	gpoParams := config.GPO
@@ -513,6 +518,7 @@ func (s *Ethereum) IsListening() bool                  { return true } // Always
 func (s *Ethereum) EthVersion() int                    { return int(s.protocolManager.SubProtocols[0].Version) }
 func (s *Ethereum) NetVersion() uint64                 { return s.networkID }
 func (s *Ethereum) Downloader() *downloader.Downloader { return s.protocolManager.downloader }
+func (s *Ethereum) StampingChain() *leap.StampingChain { return s.scchain }
 
 // Protocols implements node.Service, returning all the currently configured
 // network protocols to start.
@@ -523,6 +529,9 @@ func (s *Ethereum) Protocols() []p2p.Protocol {
 	}
 	if s.chainConfig.Algorand != nil {
 		protocols = append(protocols, s.miner.Protocols()...)
+	}
+	if s.chainConfig.Stamping != nil {
+		protocols = append(protocols, s.scchain.Protocols()...)
 	}
 
 	return protocols

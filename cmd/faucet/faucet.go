@@ -48,13 +48,10 @@ import (
 	"github.com/kaleidochain/kaleido/core"
 	"github.com/kaleidochain/kaleido/core/types"
 	"github.com/kaleidochain/kaleido/eth"
-	"github.com/kaleidochain/kaleido/eth/downloader"
 	"github.com/kaleidochain/kaleido/ethclient"
 	"github.com/kaleidochain/kaleido/ethstats"
-	"github.com/kaleidochain/kaleido/les"
 	"github.com/kaleidochain/kaleido/node"
 	"github.com/kaleidochain/kaleido/p2p"
-	"github.com/kaleidochain/kaleido/p2p/discv5"
 	"github.com/kaleidochain/kaleido/p2p/enode"
 	"github.com/kaleidochain/kaleido/p2p/nat"
 	"github.com/kaleidochain/kaleido/params"
@@ -91,7 +88,7 @@ var (
 func main() {
 	// Parse the flags and set up the logger to print everything requested
 	flag.Parse()
-	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*logFlag), log.StreamHandler(os.Stderr, log.TerminalFormat(true))))
+	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*logFlag), log.StreamHandler(os.Stderr, log.TerminalFormat(false))))
 
 	// Construct the payout tiers
 	amounts := make([]string, *tiersFlag)
@@ -151,14 +148,19 @@ func main() {
 		}
 	}
 	// Convert the bootnodes to internal enode representations
-	var enodes []*discv5.Node
-	for _, boot := range strings.Split(*bootFlag, ",") {
-		if url, err := discv5.ParseNode(boot); err == nil {
+	var enodes []*enode.Node
+	bootnodesUrls := params.KaleidoTestnetBootnodes
+	if len(*bootFlag) > 0 {
+		bootnodesUrls = strings.Split(*bootFlag, ",")
+	}
+	for _, boot := range bootnodesUrls {
+		if url, err := enode.ParseV4(boot); err == nil {
 			enodes = append(enodes, url)
 		} else {
 			log.Error("Failed to parse bootnode URL", "url", boot, "err", err)
 		}
 	}
+
 	// Load up the account key and decrypt its password
 	blob, err := ioutil.ReadFile(*accPassFlag)
 	if err != nil {
@@ -219,40 +221,37 @@ type faucet struct {
 	lock sync.RWMutex // Lock protecting the faucet's internals
 }
 
-func newFaucet(genesis *core.Genesis, port int, enodes []*discv5.Node, network uint64, stats string, ks *keystore.KeyStore, index []byte) (*faucet, error) {
+func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network uint64, stats string, ks *keystore.KeyStore, index []byte) (*faucet, error) {
 	// Assemble the raw devp2p protocol stack
 	stack, err := node.New(&node.Config{
 		Name:    "kalgo",
 		Version: params.KalgoVersionMeta,
 		DataDir: filepath.Join(os.Getenv("HOME"), ".faucet"),
 		P2P: p2p.Config{
-			NAT:              nat.Any(),
-			NoDiscovery:      true,
-			DiscoveryV5:      true,
-			ListenAddr:       fmt.Sprintf(":%d", port),
-			MaxPeers:         25,
-			BootstrapNodesV5: enodes,
+			NAT:            nat.Any(),
+			ListenAddr:     fmt.Sprintf(":%d", port),
+			MaxPeers:       25,
+			BootstrapNodes: enodes,
 		},
 	})
 	if err != nil {
 		return nil, err
 	}
-	// Assemble the Ethereum light client protocol
+
 	if err := stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
 		cfg := eth.DefaultConfig
-		cfg.SyncMode = downloader.LightSync
 		cfg.NetworkId = network
 		cfg.Genesis = genesis
-		return les.New(ctx, &cfg)
+		return eth.New(ctx, &cfg)
 	}); err != nil {
 		return nil, err
 	}
 	// Assemble the ethstats monitoring and reporting service'
 	if stats != "" {
 		if err := stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
-			var serv *les.LightEthereum
+			var serv *eth.Ethereum
 			ctx.Service(&serv)
-			return ethstats.New(stats, nil, serv)
+			return ethstats.New(stats, serv, nil)
 		}); err != nil {
 			return nil, err
 		}

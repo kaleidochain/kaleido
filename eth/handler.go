@@ -391,12 +391,6 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			if origin == nil {
 				break
 			}
-			proof, err := pm.blockchain.BuildProof(origin.Certificate)
-			if err != nil {
-				p.Log().Error("BuildProof error", "height", origin.Number.Uint64(), "error", err)
-				break
-			}
-			origin.Certificate.TrieProof = proof
 
 			headers = append(headers, origin)
 			bytes += estHeaderRlpSize
@@ -744,13 +738,6 @@ func (pm *ProtocolManager) BroadcastBlock(block *types.Block, propagate bool) {
 	hash := block.Hash()
 	peers := pm.peers.PeersWithoutBlock(hash)
 
-	proof, err := pm.blockchain.BuildProof(block.Certificate())
-	if err != nil {
-		log.Error("BuildProof error when BroadcastBlock", "number", block.Number(), "hash", hash)
-		return
-	}
-	block.Certificate().TrieProof = proof
-
 	// If propagation is requested, send to a subset of the peer
 	if propagate {
 		// Calculate the TD of the block (it's not imported yet, so block.Td is not valid)
@@ -876,4 +863,8 @@ func (pm *ProtocolManager) enableAcceptTxWhenGotNewHead() {
 			return
 		}
 	}
+}
+
+func (pm *ProtocolManager) GetDownloader() *downloader.Downloader {
+	return pm.downloader
 }

@@ -104,6 +104,10 @@ type headerMarshaling struct {
 	TotalBalanceOfMiners *hexutil.Big
 }
 
+func (h *Header) NumberU64() uint64 {
+	return h.Number.Uint64()
+}
+
 func (h *Header) SetVersion(version uint64) {
 	h.Nonce = EncodeNonce(version)
 }
@@ -127,6 +131,10 @@ func (h *Header) SetSeedBytes(seed []byte) {
 
 func (h *Header) SeedBytes() []byte {
 	return h.MixDigest[:]
+}
+
+func (h *Header) SeedProof() ed25519.VrfProof {
+	return h.Certificate.SeedProof()
 }
 
 func (h *Header) Proposer() common.Address {
@@ -288,6 +296,16 @@ func NewBlockWithHeader(header *Header) *Block {
 	return &Block{header: CopyHeader(header)}
 }
 
+func CopyNonCertHeader(h *Header) *Header {
+	headerNoCert := CopyHeader(h)
+	headerNoCert.Certificate = new(Certificate)
+
+	seedProof := h.SeedProof()
+	headerNoCert.Certificate.SetSeedProof(seedProof[:])
+	headerNoCert.Certificate.SetProposer(h.Proposer())
+	return headerNoCert
+}
+
 // CopyHeader creates a deep copy of a block header to prevent side effects from
 // modifying a header variable.
 func CopyHeader(h *Header) *Header {
@@ -383,7 +401,7 @@ func (b *Block) AlgorandEmptyValue() common.Hash { return b.header.AlgorandEmpty
 
 func (b *Block) Certificate() *Certificate      { return b.header.Certificate }
 func (b *Block) Seed() ed25519.VrfOutput256     { return b.header.Seed() }
-func (b *Block) SeedProof() ed25519.VrfProof    { return b.header.Certificate.SeedProof() }
+func (b *Block) SeedProof() ed25519.VrfProof    { return b.header.SeedProof() }
 func (b *Block) Proof() ed25519.VrfProof        { return b.header.Proof() }
 func (b *Block) TotalBalanceOfMiners() *big.Int { return b.header.TotalBalanceOfMiners }
 func (b *Block) Proposer() common.Address       { return b.header.Proposer() }

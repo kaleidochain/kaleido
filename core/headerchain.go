@@ -198,6 +198,56 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 	return
 }
 
+func (hc *HeaderChain) WriteStampingCertificateHeader(header *types.Header) (err error) {
+	var (
+		hash   = header.Hash()
+		number = header.Number.Uint64()
+	)
+
+	if err := hc.WriteTd(hash, number, header.Number); err != nil {
+		log.Crit("Failed to write header total difficulty", "err", err)
+	}
+	rawdb.WriteHeader(hc.chainDb, header)
+	// Extend the canonical chain with the new header
+	rawdb.WriteCanonicalHash(hc.chainDb, hash, number)
+	rawdb.WriteHeadHeaderHash(hc.chainDb, hash)
+
+	hc.currentHeaderHash = hash
+	hc.currentHeader.Store(types.CopyHeader(header))
+
+	hc.headerCache.Add(hash, header)
+	hc.numberCache.Add(hash, number)
+
+	return
+}
+
+func (hc *HeaderChain) WriteBackwardHeader(header *types.Header) (err error) {
+	var (
+		hash   = header.Hash()
+		number = header.Number.Uint64()
+	)
+
+	if err := hc.WriteTd(hash, number, header.Number); err != nil {
+		log.Crit("Failed to write header total difficulty", "err", err)
+	}
+	rawdb.WriteHeader(hc.chainDb, header)
+	// Extend the canonical chain with the new header
+	rawdb.WriteCanonicalHash(hc.chainDb, hash, number)
+
+	hc.headerCache.Add(hash, header)
+	hc.numberCache.Add(hash, number)
+
+	return
+}
+
+func (hc *HeaderChain) WriteNonCertificateHeader(header *types.Header) error {
+	rawdb.WriteHeader(hc.chainDb, header)
+
+	hc.headerCache.Add(header.Hash(), header)
+
+	return nil
+}
+
 // WhCallback is a callback function for inserting individual headers.
 // A callback is used for two reasons: first, in a LightChain, status should be
 // processed and light chain events sent, while in a BlockChain this is not

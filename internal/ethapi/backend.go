@@ -21,6 +21,8 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/kaleidochain/kaleido/leap"
+
 	"github.com/kaleidochain/kaleido/accounts"
 	"github.com/kaleidochain/kaleido/common"
 	"github.com/kaleidochain/kaleido/core"
@@ -39,6 +41,7 @@ import (
 type Backend interface {
 	// General Ethereum API
 	Downloader() *downloader.Downloader
+	StampingChain() *leap.StampingChain
 	ProtocolVersion() int
 	SuggestPrice(ctx context.Context) (*big.Int, error)
 	ChainDb() ethdb.Database

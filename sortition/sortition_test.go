@@ -27,17 +27,18 @@ func TestSortition(t *testing.T) {
 	hitcount := uint64(0)
 	const nTimes = 10000
 
-	const expectedWeight = 20
+	const threshold = 2
+	const totalNumber = 20
 	const ownWeight = 100
 	const totalWeight = 200
 	for i := 0; i < nTimes; i++ {
 		var vrfOutput ed25519.VrfOutput256
 		_, _ = rand.Read(vrfOutput[:])
-		selected := Choose(vrfOutput, ownWeight, 2, expectedWeight, totalWeight)
+		selected := Choose(vrfOutput, ownWeight, threshold, totalNumber, totalWeight)
 		hitcount += selected
 	}
 
-	expected := uint64(nTimes * expectedWeight / 2)
+	expected := uint64(nTimes * totalNumber * ownWeight / totalWeight)
 	var diff uint64
 	if expected > hitcount {
 		diff = expected - hitcount
@@ -61,5 +62,29 @@ func BenchmarkSortition(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		Choose(keys[i], 1000000, 2, 2500, 1000000000000)
+	}
+}
+
+func TestStampingSortition(t *testing.T) {
+	hitcount := uint64(0)
+	const nTimes = 10000
+
+	const threshold = 100
+	const totalNumber = 120
+	const ownWeight = 1600
+	const totalWeight = 2000
+	for i := 0; i < nTimes; i++ {
+		var vrfOutput ed25519.VrfOutput256
+		_, _ = rand.Read(vrfOutput[:])
+		selected := Choose(vrfOutput, ownWeight, threshold, totalNumber, totalWeight)
+		if selected >= threshold {
+			hitcount += 1
+		}
+	}
+
+	const expected = 35.0
+	fs := float64(hitcount) / nTimes * 100
+	if fs <= expected-1 || fs >= expected+1 {
+		t.Errorf("wanted %f%% weight but got %f%%, hit=%d", expected, fs, hitcount)
 	}
 }

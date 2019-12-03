@@ -62,6 +62,11 @@ var (
 			TotalWeight:      big.NewInt(10000000000),
 			IntervalSize:     1000 * 1000,
 		},
+		Stamping: &StampingConfig{
+			B:          10000,
+			BaseHeight: 0,
+			BaseHash:   common.Hash{},
+		},
 	}
 
 	KaleidoTestnetChainConfig = &ChainConfig{
@@ -83,6 +88,11 @@ var (
 			TimeoutTwoLambda: 2000,
 			TotalWeight:      big.NewInt(10000000000),
 			IntervalSize:     1000 * 1000,
+		},
+		Stamping: &StampingConfig{
+			B:          10000,
+			BaseHeight: 2943000,
+			BaseHash:   common.HexToHash("0x7fad6c2ed34c7a7d7154cae0aa7491332a7012a52e25b7bd492112e929d5154f"),
 		},
 	}
 
@@ -218,16 +228,16 @@ var (
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, 0, new(EthashConfig), nil, nil}
+	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, 0, new(EthashConfig), nil, nil, nil}
 
 	// AllCliqueProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Clique consensus.
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, 0, nil, &CliqueConfig{Period: 0, Epoch: 30000}, nil}
+	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, 0, nil, &CliqueConfig{Period: 0, Epoch: 30000}, nil, nil}
 
-	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, 0, new(EthashConfig), nil, nil}
+	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, 0, new(EthashConfig), nil, nil, nil}
 	TestRules       = TestChainConfig.Rules(new(big.Int))
 )
 
@@ -274,6 +284,7 @@ type ChainConfig struct {
 	Ethash   *EthashConfig   `json:"ethash,omitempty"`
 	Clique   *CliqueConfig   `json:"clique,omitempty"`
 	Algorand *AlgorandConfig `json:"algorand,omitempty"`
+	Stamping *StampingConfig `json:"stamping,omitempty"`
 }
 
 // TurnConfig stands for TDN turn delivery network
@@ -331,6 +342,9 @@ type CommitteeConfig struct {
 	SoftCommitteeSize      uint64
 	CertCommitteeSize      uint64
 	NextCommitteeSize      uint64
+
+	StampingCommitteeThreshold uint64
+	StampingCommitteeSize      uint64
 }
 
 var (
@@ -346,8 +360,25 @@ var (
 		SoftCommitteeSize: 2990,
 		CertCommitteeSize: 1500,
 		NextCommitteeSize: 5000,
+
+		StampingCommitteeThreshold: 100,
+		StampingCommitteeSize:      120,
 	}
 )
+
+type StampingConfig struct {
+	B          uint64      `json:"b"`
+	BaseHeight uint64      `json:"baseHeight"`
+	BaseHash   common.Hash `json:"baseHash"`
+}
+
+func (c *StampingConfig) HeightB() uint64 {
+	return c.BaseHeight + c.B
+}
+
+func (c *StampingConfig) String() string {
+	return "stamping"
+}
 
 // String implements the fmt.Stringer interface.
 func (c *ChainConfig) String() string {
