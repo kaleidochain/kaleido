@@ -7,7 +7,7 @@ import (
 const (
 	KalgoVersionMajor = 1          // Major version component of the current kalgo release
 	KalgoVersionMinor = 0          // Minor version component of the current kalgo release
-	KalgoVersionPatch = 6          // Patch version component of the current kalgo release
+	KalgoVersionPatch = 7          // Patch version component of the current kalgo release
 	KalgoVersionMeta  = "unstable" // Version metadata to append to the version string
 )
 
